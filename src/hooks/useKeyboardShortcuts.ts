@@ -26,10 +26,10 @@ export function useKeyboardShortcuts({
       if (e.key === ' ') {
         e.preventDefault()
         onTogglePlay()
-      } else if (e.key === '[') {
+      } else if (e.key.toLowerCase() === 'i') {
         e.preventDefault()
         onMarkStart()
-      } else if (e.key === ']') {
+      } else if (e.key.toLowerCase() === 'f') {
         e.preventDefault()
         onMarkEnd()
       } else if (e.key === 'ArrowLeft') {

@@ -17,9 +17,10 @@ interface Props {
   draft: AnnotationDraft
   onCancel: () => void
   onSubmit: (segment: Segment) => void
+  annotatorLocked?: string
 }
 
-export function AnnotationForm({ draft, onCancel, onSubmit }: Props) {
+export function AnnotationForm({ draft, onCancel, onSubmit, annotatorLocked }: Props) {
   const [form, setForm] = useState<AnnotationDraft>(draft)
   const [error, setError] = useState<string | null>(null)
 
@@ -83,17 +84,22 @@ export function AnnotationForm({ draft, onCancel, onSubmit }: Props) {
           <input
             type="text"
             value={form.repetitionId ?? ''}
-            onChange={(e) => setForm((f) => ({ ...f, repetitionId: e.target.value }))}
-            placeholder="1, 2, 3..."
+            disabled
+            placeholder="Auto"
           />
         </label>
         <label>
           Anotador
           <input
             type="text"
-            value={form.annotatorId ?? ''}
-            onChange={(e) => setForm((f) => ({ ...f, annotatorId: e.target.value }))}
+            value={annotatorLocked ?? form.annotatorId ?? ''}
+            onChange={(e) =>
+              setForm((f) =>
+                annotatorLocked ? f : { ...f, annotatorId: e.target.value },
+              )
+            }
             placeholder="ID o iniciales"
+            disabled={!!annotatorLocked}
           />
         </label>
       </div>

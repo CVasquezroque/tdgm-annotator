@@ -87,8 +87,8 @@ export function Timeline({
       <div className="timeline-track">
         <div className="timeline-progress" style={{ width: `${ratio}%` }} />
         <div className="timeline-thumb" style={{ left: thumbLeft }} />
-        {children}
       </div>
+      {children}
       {hoverTime !== null && (
         <div className="timeline-preview" style={{ left: previewLeft }}>
           {previewUrl ? <img src={previewUrl} alt="preview" /> : <div className="preview-empty" />}

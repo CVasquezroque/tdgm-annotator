@@ -1,4 +1,4 @@
-import { ACTION_BY_ID, TGMD_ACTIONS } from '../constants/actions'
+import { ACTION_BY_ID } from '../constants/actions'
 
 const locomotorOrder = ['run', 'gallop', 'hop', 'skip', 'horizontal_jump', 'slide'] as const
 const ballSkillsOrder = [
@@ -44,7 +44,7 @@ export function ShortcutsHelp() {
         {renderGroup('Ball skills subtest', ballSkillsOrder)}
       </div>
       <div className="skills-actions-note">
-        {TGMD_ACTIONS.length} acciones fijas TGMD-3. Etiquetas exportan los IDs oficiales en CSV.
+        Atajos activos: Espacio (play/pausa), [ marcar inicio, ] marcar fin, ←/→ saltar 2s.
       </div>
     </div>
   )
