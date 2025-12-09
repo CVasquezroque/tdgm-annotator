@@ -1,36 +1,4 @@
-import { ACTION_BY_ID } from '../constants/actions'
-
-const locomotorOrder = ['run', 'gallop', 'hop', 'skip', 'horizontal_jump', 'slide'] as const
-const ballSkillsOrder = [
-  'strike_two_hands',
-  'strike_one_hand',
-  'dribble_one_hand',
-  'catch_two_hands',
-  'kick',
-  'overhand_throw',
-  'underhand_throw',
-] as const
-
 export function ShortcutsHelp() {
-  const renderGroup = (title: string, ids: readonly string[]) => (
-    <div className="skills-group">
-      <div className="skills-group-title">{title}</div>
-      <ul className="skills-list">
-        {ids.map((id) => {
-          const action = ACTION_BY_ID[id]
-          if (!action) return null
-          return (
-            <li key={id}>
-              <img className="icon icon-tag" src="/icon-tag.png" alt="" />
-              <span className="skill-shortcut">{action.shortKey?.toUpperCase()}</span>
-              <span className="skill-name">{action.label}</span>
-            </li>
-          )
-        })}
-      </ul>
-    </div>
-  )
-
   return (
     <div className="skills-card">
       <div className="skills-header">
@@ -39,12 +7,15 @@ export function ShortcutsHelp() {
           <span>TGMD-3 skills</span>
         </div>
       </div>
-      <div className="skills-body">
-        {renderGroup('Locomotor subtest', locomotorOrder)}
-        {renderGroup('Ball skills subtest', ballSkillsOrder)}
-      </div>
       <div className="skills-actions-note">
-        Atajos activos: Espacio (play/pausa), [ marcar inicio, ] marcar fin, ←/→ saltar 2s.
+        Instrucciones rápidas:
+        <ul>
+          <li>Carga un video local (MP4) y presiona reproducir (barra espaciadora).</li>
+          <li>Marca inicio/fin con botones o atajos: <strong>i</strong> (inicio), <strong>f</strong> (fin).</li>
+          <li>Selecciona la acción TGMD-3 en la vista ampliada; la repetición se calcula automáticamente.</li>
+          <li>La pista muestra segmentos por acción (Gantt). Tabla permite ir, editar, eliminar.</li>
+          <li>Exporta CSV con los campos requeridos cuando termines.</li>
+        </ul>
       </div>
     </div>
   )
