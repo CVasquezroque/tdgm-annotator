@@ -16,29 +16,39 @@ Herramienta local para segmentar manualmente videos de habilidades motoras TGMD-
 ## Instalación y ejecución
 ```bash
 npm install
-npm run dev    # levanta la app en modo desarrollo
+# Frontend
+npm run dev    # http://localhost:5173 (usa VITE_AUTH_URL para apuntar al backend)
 npm run build  # build de producción estático
+
+# Backend de autenticación local (Node + SQLite)
+npm run server # http://localhost:4000 (env: CORS_ORIGIN, JWT_SECRET)
 ```
-Abre el enlace que muestra Vite (típicamente http://localhost:5173). No se necesita backend.
+Variables relevantes (frontend):
+- `VITE_AUTH_URL`: URL del backend de auth (por defecto http://localhost:4000)
+
+Backend: `server/index.cjs` (Express + JWT + SQLite, cookie httpOnly). **No commitees `.env` ni `auth.db`**.
 
 ## Uso rápido
 1. **Cargar video local**: botón “Seleccionar video local”.
 2. **Reproducir y navegar**: play/pausa, saltos ±2s, barra de tiempo arrastrable con miniatura de previsualización.
-3. **Marcar segmento**: `[ inicio`, `] fin` (o botones). Al tener inicio y fin válidos se abre el formulario.
-4. **Etiquetar**: elegir acción TGMD-3, opcional `repetition_id`, `annotator_id`, `notes`. Guardar.
+3. **Marcar segmento**: inicio/fin (botones o atajos i/f). Se abre el formulario.
+4. **Etiquetar**: elegir acción TGMD-3, repetición se asigna automáticamente, anotador se toma del usuario logueado, notas opcionales.
 5. **Gestionar**: tabla de segmentos permite ir al inicio, editar o eliminar; la pista coloreada refleja los cambios.
 6. **Exportar CSV**: botón “Exportar CSV” genera archivo con columnas exactas `video_id,file_path,action,start_sec,end_sec,repetition_id,annotator_id,notes`.
 
 ## Atajos de teclado
 - Espacio: play/pausa
+- `i`: marcar inicio
+- `f`: marcar fin
 - `← / →`: saltar 2s
 
 ## Estructura relevante
-- `src/constants/actions.ts`: lista fija TGMD-3 (IDs, etiquetas, colores, atajos). Ajusta aquí para nuevas etiquetas/colores.
+- `src/constants/actions.ts`: lista fija TGMD-3 (IDs, etiquetas, colores).
 - `src/utils/csvExport.ts`: lógica de exportación CSV.
 - `src/components/`: UI modular
-  - `VideoPlayer`, `Timeline`, `SegmentTrack`, `SegmentList`, `AnnotationForm`, `ShortcutsHelp`.
-- `src/hooks/useThumbnailGenerator.ts`: genera miniaturas con `<video>` oculto + `<canvas>`.
+  - `VideoPlayer`, `Timeline` + `ActionTimeline` (Gantt por acción), `SegmentList`, `AnnotationForm`, `ShortcutsHelp`, `LoginCard`.
+- `src/hooks/useThumbnailGenerator.ts`: miniaturas con `<video>` oculto + `<canvas>`.
+- `src/hooks/useAuth.ts`: login/register/logout contra el backend.
 - `src/types.ts`: tipos `ActionId`, `Segment`, `VideoMeta`.
 
 ## CSV / ID de video
