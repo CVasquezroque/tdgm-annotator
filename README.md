@@ -31,10 +31,7 @@ Abre el enlace que muestra Vite (típicamente http://localhost:5173). No se nece
 
 ## Atajos de teclado
 - Espacio: play/pausa
-- `[`: marcar inicio
-- `]`: marcar fin
 - `← / →`: saltar 2s
-- Acciones TGMD-3: `1..9,0,q,w,e` (ver leyenda en UI)
 
 ## Estructura relevante
 - `src/constants/actions.ts`: lista fija TGMD-3 (IDs, etiquetas, colores, atajos). Ajusta aquí para nuevas etiquetas/colores.
