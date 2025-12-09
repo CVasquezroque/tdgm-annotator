@@ -1,4 +1,4 @@
-# TGMD-3 Video Annotator (ELAN-style)
+# TGMD-3 Video Annotator
 
 Este proyecto busca ofrecer una herramienta local, estable y fácil de usar para la anotación manual de los 13 movimientos del TGMD-3 en videos de niños, pensada para flujos clínicos, educativos y de investigación. La prioridad es que cualquier equipo institucional pueda cargar videos locales, marcar segmentos con precisión estilo ELAN, revisar/editar las anotaciones y exportar a CSV con los IDs oficiales del TGMD-3, sin depender de un backend ni instalaciones complejas.
 
