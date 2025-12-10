@@ -7,6 +7,9 @@ interface Options {
   onMarkEnd: () => void
   onJumpBackward?: () => void
   onJumpForward?: () => void
+  onJumpBackwardPrecise?: () => void
+  onJumpForwardPrecise?: () => void
+  onSaveSegment?: () => void
   onChooseAction?: (actionId: string) => void
   actions: ActionDefinition[]
 }
@@ -17,6 +20,9 @@ export function useKeyboardShortcuts({
   onMarkEnd,
   onJumpBackward,
   onJumpForward,
+  onJumpBackwardPrecise,
+  onJumpForwardPrecise,
+  onSaveSegment,
   onChooseAction,
   actions,
 }: Options) {
@@ -26,16 +32,27 @@ export function useKeyboardShortcuts({
       if (e.key === ' ') {
         e.preventDefault()
         onTogglePlay()
-      } else if (e.key.toLowerCase() === 'i') {
+      } else if (e.key.toLowerCase() === 'a') {
         e.preventDefault()
         onMarkStart()
-      } else if (e.key.toLowerCase() === 'f') {
+      } else if (e.key.toLowerCase() === 'd') {
         e.preventDefault()
         onMarkEnd()
+      } else if (e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        onSaveSegment?.()
       } else if (e.key === 'ArrowLeft') {
-        onJumpBackward?.()
+        if (e.altKey) {
+          onJumpBackwardPrecise?.()
+        } else {
+          onJumpBackward?.()
+        }
       } else if (e.key === 'ArrowRight') {
-        onJumpForward?.()
+        if (e.altKey) {
+          onJumpForwardPrecise?.()
+        } else {
+          onJumpForward?.()
+        }
       } else if (onChooseAction) {
         const match = actions.find((a) => a.shortKey === e.key.toLowerCase())
         if (match) {
@@ -46,6 +63,17 @@ export function useKeyboardShortcuts({
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [actions, onChooseAction, onJumpBackward, onJumpForward, onMarkEnd, onMarkStart, onTogglePlay])
+  }, [
+    actions,
+    onChooseAction,
+    onJumpBackward,
+    onJumpBackwardPrecise,
+    onJumpForward,
+    onJumpForwardPrecise,
+    onMarkEnd,
+    onMarkStart,
+    onSaveSegment,
+    onTogglePlay,
+  ])
 }
 

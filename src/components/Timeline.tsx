@@ -72,29 +72,37 @@ export function Timeline({
     hoverTime !== null && duration > 0 ? `${(hoverTime / duration) * 100}%` : thumbLeft
 
   return (
-    <div
-      className="timeline-container"
-      ref={containerRef}
-      onMouseMove={(e) => handlePointer(e.clientX)}
-      onMouseEnter={(e) => handlePointer(e.clientX)}
-      onMouseLeave={() => setHoverTime(null)}
-      onMouseDown={(e) => {
-        setIsScrubbing(true)
-        const t = handlePointer(e.clientX)
-        onSeek(t)
-      }}
-    >
-      <div className="timeline-track">
-        <div className="timeline-progress" style={{ width: `${ratio}%` }} />
-        <div className="timeline-thumb" style={{ left: thumbLeft }} />
+    <div className="timeline-container">
+      <div className="timeline-row">
+        <div className="timeline-label">
+          <img className="icon" src="/icon-timeline.png" alt="" />
+          <span>Timeline</span>
+        </div>
+        <div
+          className="timeline-track-wrapper"
+          ref={containerRef}
+          onMouseMove={(e) => handlePointer(e.clientX)}
+          onMouseEnter={(e) => handlePointer(e.clientX)}
+          onMouseLeave={() => setHoverTime(null)}
+          onMouseDown={(e) => {
+            setIsScrubbing(true)
+            const t = handlePointer(e.clientX)
+            onSeek(t)
+          }}
+        >
+          <div className="timeline-track">
+            <div className="timeline-progress" style={{ width: `${ratio}%` }} />
+            <div className="timeline-thumb" style={{ left: thumbLeft }} />
+          </div>
+          {hoverTime !== null && (
+            <div className="timeline-preview" style={{ left: previewLeft }}>
+              {previewUrl ? <img src={previewUrl} alt="preview" /> : <div className="preview-empty" />}
+              <div className="preview-time">{formatTime(previewTime ?? hoverTime)}</div>
+            </div>
+          )}
+        </div>
       </div>
       {children}
-      {hoverTime !== null && (
-        <div className="timeline-preview" style={{ left: previewLeft }}>
-          {previewUrl ? <img src={previewUrl} alt="preview" /> : <div className="preview-empty" />}
-          <div className="preview-time">{formatTime(previewTime ?? hoverTime)}</div>
-        </div>
-      )}
     </div>
   )
 }

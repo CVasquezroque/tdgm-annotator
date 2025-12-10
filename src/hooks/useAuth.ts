@@ -1,11 +1,59 @@
 import { useEffect, useState } from 'react'
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  type User as FirebaseUser,
+} from 'firebase/auth'
+import { auth } from '../firebase'
 
 export interface User {
-  id: number
+  uid: string
   username: string
+  email: string | null
 }
 
-const API_BASE = import.meta.env.VITE_AUTH_URL || 'http://localhost:4000'
+function translateFirebaseError(code: string): string {
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+      return 'Credenciales inválidas. Verifica correo y contraseña o crea una cuenta.'
+    case 'auth/user-not-found':
+      return 'No existe una cuenta con este correo.'
+    case 'auth/email-already-in-use':
+      return 'Ya existe una cuenta con este correo.'
+    case 'auth/weak-password':
+      return 'La contraseña debe tener al menos 6 caracteres.'
+    case 'auth/invalid-email':
+      return 'El correo electrónico no es válido.'
+    case 'auth/too-many-requests':
+      return 'Demasiados intentos. Intenta más tarde.'
+    case 'auth/network-request-failed':
+      return 'Error de red. Verifica tu conexión.'
+    default:
+      return 'Error de autenticación. Intenta de nuevo.'
+  }
+}
+
+function getErrorMessage(e: unknown): string {
+  if (e && typeof e === 'object' && 'code' in e && typeof (e as { code: unknown }).code === 'string') {
+    return translateFirebaseError((e as { code: string }).code)
+  }
+  return e instanceof Error ? e.message : 'Error desconocido.'
+}
+
+function mapUser(firebaseUser: FirebaseUser): User {
+  const email = firebaseUser.email ?? null
+  const displayName = firebaseUser.displayName?.trim() || null
+  return {
+    uid: firebaseUser.uid,
+    email,
+    username: displayName ?? (email ? email.split('@')[0] : firebaseUser.uid.slice(0, 8)),
+  }
+}
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
@@ -13,57 +61,62 @@ export function useAuth() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    void fetch(`${API_BASE}/auth/me`, { credentials: 'include' })
-      .then(async (r) => {
-        if (!r.ok) throw new Error('unauthenticated')
-        return r.json()
-      })
-      .then((data) => setUser(data))
-      .catch(() => setUser(null))
-      .finally(() => setLoading(false))
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u ? mapUser(u) : null)
+      setLoading(false)
+    })
+    return () => unsub()
   }, [])
 
-  const login = async (username: string, password: string) => {
+  const login = async (email: string, password: string) => {
     setError(null)
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ username, password }),
-    })
-    if (!res.ok) {
-      const msg = (await res.json().catch(() => ({}))).error ?? 'Error de login'
+    try {
+      const creds = await signInWithEmailAndPassword(auth, email, password)
+      const mapped = mapUser(creds.user)
+      setUser(mapped)
+      return mapped
+    } catch (e) {
+      const msg = getErrorMessage(e)
       setError(msg)
       throw new Error(msg)
     }
-    const data = await res.json()
-    setUser(data)
-    return data
   }
 
-  const register = async (username: string, password: string) => {
+  const register = async (email: string, password: string, username: string) => {
     setError(null)
-    const res = await fetch(`${API_BASE}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ username, password }),
-    })
-    if (!res.ok) {
-      const msg = (await res.json().catch(() => ({}))).error ?? 'Error de registro'
+    try {
+      const creds = await createUserWithEmailAndPassword(auth, email, password)
+      if (username.trim()) {
+        await updateProfile(creds.user, { displayName: username.trim() })
+      }
+      const mapped = mapUser(creds.user)
+      setUser(mapped)
+      return mapped
+    } catch (e) {
+      const msg = getErrorMessage(e)
       setError(msg)
       throw new Error(msg)
     }
-    const data = await res.json()
-    setUser(data)
-    return data
+  }
+
+  const resetPassword = async (email: string) => {
+    setError(null)
+    try {
+      await sendPasswordResetEmail(auth, email)
+    } catch (e) {
+      const msg = getErrorMessage(e)
+      setError(msg)
+      throw new Error(msg)
+    }
   }
 
   const logout = async () => {
-    await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' })
+    await signOut(auth)
     setUser(null)
   }
 
-  return { user, loading, error, login, register, logout }
+  const clearError = () => setError(null)
+
+  return { user, loading, error, login, register, logout, resetPassword, clearError }
 }
 

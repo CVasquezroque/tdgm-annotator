@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { VideoLoader } from './components/VideoLoader'
 import { VideoPlayer } from './components/VideoPlayer'
@@ -10,7 +10,7 @@ import { AnnotationForm } from './components/AnnotationForm'
 import type { AnnotationDraft } from './components/AnnotationForm'
 import { ShortcutsHelp } from './components/ShortcutsHelp'
 import { LoginCard } from './components/LoginCard'
-import type { Segment, VideoMeta } from './types'
+import type { ActionId, Segment, VideoMeta } from './types'
 import { TGMD_ACTIONS } from './constants/actions'
 import { exportAnnotationsToCsv } from './utils/csvExport'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
@@ -27,17 +27,24 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [isExpanded, setIsExpanded] = useState(false)
-  const [selectedAction, setSelectedAction] = useState(TGMD_ACTIONS[0].id)
+  const [isVideoLoading, setIsVideoLoading] = useState(false)
+  const [isMuted, setIsMuted] = useState(true)
+  const [selectedAction, setSelectedAction] = useState<ActionId | ''>('')
   const [segments, setSegments] = useState<Segment[]>([])
   const [pendingStart, setPendingStart] = useState<number | null>(null)
   const [pendingEnd, setPendingEnd] = useState<number | null>(null)
   const [draft, setDraft] = useState<AnnotationDraft | null>(null)
   const [status, setStatus] = useState<string | null>(null)
-  const { user, login, register, loading: authLoading, error: authError } = useAuth()
+  const [markError, setMarkError] = useState<string | null>(null)
+  const [showFormModal, setShowFormModal] = useState(false)
+  const [lastSaved, setLastSaved] = useState<Segment | null>(null)
+  const [pendingSeek, setPendingSeek] = useState<number | null>(null)
+  const { user, login, register, resetPassword, clearError, loading: authLoading, error: authError } = useAuth()
 
   const { previewUrl, previewTime, requestPreview } = useThumbnailGenerator(videoSrc)
 
-  const nextRepetitionFor = (actionId: string) => {
+  const nextRepetitionFor = (actionId: ActionId | '') => {
+    if (!actionId) return ''
     const count = segments.filter((s) => s.action === actionId).length
     return String(count + 1)
   }
@@ -52,12 +59,15 @@ function App() {
     const src = URL.createObjectURL(file)
     setVideoSrc(src)
     setVideoMeta({ fileName: file.name, filePath: file.name, duration: 0 })
+    setIsVideoLoading(true)
     setDuration(0)
     setSegments([])
     resetAnnotationState()
     setStatus(null)
     setIsPlaying(false)
     setCurrentTime(0)
+    setShowFormModal(false)
+    setLastSaved(null)
     if (videoRef.current) {
       videoRef.current.pause()
       videoRef.current.currentTime = 0
@@ -81,9 +91,15 @@ function App() {
     if (!videoRef.current) return
     videoRef.current.currentTime = time
     setCurrentTime(time)
+    setPendingSeek(time)
   }
 
   const markStart = () => {
+    if (!selectedAction) {
+      setMarkError('Debes escoger una acción.')
+      return
+    }
+    setMarkError(null)
     setPendingStart(currentTime)
     setPendingEnd(null)
     setStatus(`Inicio marcado en ${formatTime(currentTime)}`)
@@ -91,6 +107,11 @@ function App() {
   }
 
   const markEnd = () => {
+    if (!selectedAction) {
+      setMarkError('Debes escoger una acción.')
+      return
+    }
+    setMarkError(null)
     if (pendingStart === null) {
       setStatus('Primero marca el inicio.')
       return
@@ -108,6 +129,9 @@ function App() {
       annotatorId: user?.username,
       repetitionId: nextRepetitionFor(selectedAction),
     })
+    setIsExpanded(false)
+    setPendingSeek(currentTime)
+    setShowFormModal(true)
   }
 
   const handleSubmitSegment = (segment: Segment) => {
@@ -121,13 +145,25 @@ function App() {
       return [...filtered, withAnnotator].sort((a, b) => a.startSec - b.startSec)
     })
     resetAnnotationState()
-    setStatus('Segmento guardado.')
+    const msg = `Segmento guardado: ${withAnnotator.action} ${formatTime(withAnnotator.startSec)} - ${formatTime(withAnnotator.endSec)}`
+    setStatus(msg)
+    setLastSaved(withAnnotator)
+    setSelectedAction('')
+    setIsExpanded(false)
+    setShowFormModal(false)
+    // Mantener el video en el punto final del segmento guardado
+    setPendingSeek(segment.endSec)
+    setCurrentTime(segment.endSec)
   }
 
   const handleEditSegment = (segment: Segment) => {
     setDraft({ ...segment })
     setPendingStart(segment.startSec)
     setPendingEnd(segment.endSec)
+    setSelectedAction(segment.action)
+    setIsExpanded(false)
+    setPendingSeek(segment.startSec)
+    setShowFormModal(true)
   }
 
   const handleDeleteSegment = (id: string) => {
@@ -142,19 +178,83 @@ function App() {
     setCurrentTime(next)
   }
 
+  const jumpPrecise = (delta: number) => {
+    if (!videoRef.current) return
+    const next = Math.min(Math.max(0, currentTime + delta), duration || currentTime)
+    videoRef.current.currentTime = next
+    setCurrentTime(next)
+  }
+
+  const selectAction = (val: ActionId | '') => {
+    setSelectedAction(val)
+    setDraft((d) => {
+      if (!val) return null
+      return d ? { ...d, action: val, repetitionId: nextRepetitionFor(val) } : d
+    })
+  }
+
   useKeyboardShortcuts({
     onTogglePlay: togglePlay,
     onMarkStart: markStart,
     onMarkEnd: markEnd,
     onJumpBackward: () => jump(-2),
     onJumpForward: () => jump(2),
-    onChooseAction: undefined,
-    actions: [],
+    onJumpBackwardPrecise: () => jumpPrecise(-0.04),
+    onJumpForwardPrecise: () => jumpPrecise(0.04),
+    onSaveSegment: () => {
+      if (draft && draft.endSec > draft.startSec) {
+        handleSubmitSegment({
+          id: draft.id ?? crypto.randomUUID?.() ?? String(Date.now()),
+          action: draft.action,
+          startSec: draft.startSec,
+          endSec: draft.endSec,
+          repetitionId: draft.repetitionId,
+          annotatorId: draft.annotatorId,
+          notes: draft.notes,
+        })
+      }
+    },
+    onChooseAction: (id) => selectAction(id as ActionId),
+    actions: TGMD_ACTIONS,
   })
 
   const currentVideoId = useMemo(() => videoMeta?.fileName ?? 'video', [videoMeta])
 
   const canExport = videoMeta && segments.length > 0
+
+  useEffect(() => {
+    if (!isExpanded) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsExpanded(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isExpanded])
+
+  useEffect(() => {
+    if (!showFormModal) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowFormModal(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showFormModal])
+
+  useEffect(() => {
+    if (!status) return
+    const t = setTimeout(() => setStatus(null), 3500)
+    return () => clearTimeout(t)
+  }, [status])
+
+  useEffect(() => {
+    if (pendingSeek === null) return
+    const t = setTimeout(() => setPendingSeek(null), 100)
+    return () => clearTimeout(t)
+  }, [pendingSeek])
 
   if (authLoading) {
     return (
@@ -169,7 +269,7 @@ function App() {
   if (!user) {
     return (
       <div className="auth-shell">
-        <LoginCard onLogin={login} onRegister={register} error={authError} />
+        <LoginCard onLogin={login} onRegister={register} onResetPassword={resetPassword} onClearError={clearError} error={authError} />
       </div>
     )
   }
@@ -177,9 +277,12 @@ function App() {
   return (
     <div className="app">
       <header className="header">
-        <div>
-          <h1>TGMD-3 Video Annotator</h1>
-          <p>Herramienta local para segmentación manual de TGMD-3.</p>
+        <div className="brand">
+          <img className="brand-logo" src="/logo.png" alt="DIANA logo" />
+          <div className="brand-text">
+            <h1>DIANA Annotation Tool</h1>
+            <p>Plataforma web para segmentación TGMD-3.</p>
+          </div>
         </div>
         <div className="header-actions">
           <VideoLoader onVideoSelected={handleVideoSelected} />
@@ -208,35 +311,53 @@ function App() {
       <main className="layout">
         {isExpanded && <div className="overlay-backdrop" onClick={() => setIsExpanded(false)} />}
         <section className={`player-section ${isExpanded ? 'expanded' : ''}`}>
-          <VideoPlayer
-            src={videoSrc}
-            videoRef={videoRef}
-            isPlaying={isPlaying}
-            playbackRate={playbackRate}
-            onDuration={(d) => {
-              setDuration(d)
-              setVideoMeta((m) => (m ? { ...m, duration: d } : m))
-            }}
-            onTimeUpdate={(t) => setCurrentTime(t)}
-            onEnded={() => setIsPlaying(false)}
-            onPlayStateChange={(playing) => setIsPlaying(playing)}
-          />
+          {!showFormModal && (
+            <VideoPlayer
+              src={videoSrc}
+              videoRef={videoRef}
+              isPlaying={isPlaying}
+              playbackRate={playbackRate}
+              isMuted={isMuted}
+              isLoading={isVideoLoading}
+              seekTo={pendingSeek ?? undefined}
+              onRequestExpand={() => setIsExpanded(true)}
+              onDuration={(d) => {
+                setDuration(d)
+                setVideoMeta((m) => (m ? { ...m, duration: d } : m))
+                setIsVideoLoading(false)
+              }}
+              onTimeUpdate={(t) => setCurrentTime(t)}
+              onEnded={() => setIsPlaying(false)}
+              onPlayStateChange={(playing) => setIsPlaying(playing)}
+            />
+          )}
+          {showFormModal && <div className="player-shell placeholder">Video en el modal de anotación</div>}
           <PlaybackControls
             isPlaying={isPlaying}
             currentTime={currentTime}
             duration={duration}
             playbackRate={playbackRate}
+              isMuted={isMuted}
             onTogglePlay={togglePlay}
+              onToggleMute={() => setIsMuted((m) => !m)}
             onChangeSpeed={(r) => setPlaybackRate(r)}
             onJumpBackward={() => jump(-2)}
             onJumpForward={() => jump(2)}
           />
           <div className="marker-row">
-            <button onClick={markStart}>
+            <button
+              onClick={markStart}
+              disabled={!selectedAction}
+              title={!selectedAction ? 'Selecciona una acción primero' : 'Marcar inicio'}
+            >
               <img className="icon" src="/icon-flag.png" alt="" />
               Marcar inicio
             </button>
-            <button onClick={markEnd}>
+            <button
+              onClick={markEnd}
+              disabled={!selectedAction}
+              title={!selectedAction ? 'Selecciona una acción primero' : 'Marcar fin'}
+            >
               <img className="icon" src="/icon-flag.png" alt="" />
               Marcar fin
             </button>
@@ -244,23 +365,24 @@ function App() {
               {pendingStart !== null && <span>Inicio: {formatTime(pendingStart)}</span>}
               {pendingEnd !== null && <span>Fin: {formatTime(pendingEnd)}</span>}
             </div>
+            {markError && <span className="status error">{markError}</span>}
             {status && <span className="status">{status}</span>}
             <div className="action-selector">
               <img className="icon icon-tag" src="/icon-tag.png" alt="" />
               <label>
                 Acción a anotar
                 <select
-                  value={selectedAction}
+                  value={selectedAction || ''}
                   onChange={(e) => {
-                    const val = e.target.value as typeof selectedAction
+                    const val = e.target.value as ActionId | ''
                     setSelectedAction(val)
-                    setDraft((d) =>
-                      d
-                        ? { ...d, action: val, repetitionId: nextRepetitionFor(val) }
-                        : d,
-                    )
+                    setDraft((d) => {
+                      if (!val) return null
+                      return d ? { ...d, action: val, repetitionId: nextRepetitionFor(val) } : d
+                    })
                   }}
                 >
+                  <option value="">Escoge una acción</option>
                   {TGMD_ACTIONS.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.label}
@@ -269,10 +391,6 @@ function App() {
                 </select>
               </label>
             </div>
-          </div>
-          <div className="timeline-header">
-            <img className="icon" src="/icon-timeline.png" alt="" />
-            <span>Línea de tiempo y segmentos</span>
           </div>
           <Timeline
             duration={duration}
@@ -300,28 +418,172 @@ function App() {
               />
             </div>
           </div>
-
-          <div className="panel-card">
-            <div className="panel-header">
-              <h3>Formulario de anotación</h3>
-              <span className="video-id">Video ID: {currentVideoId}</span>
-            </div>
-            {draft ? (
-              <AnnotationForm
-                key={draft.id ?? `${draft.startSec}-${draft.endSec}`}
-                draft={{ ...draft, annotatorId: user.username }}
-                annotatorLocked={user.username}
-                onCancel={resetAnnotationState}
-                onSubmit={handleSubmitSegment}
-              />
-            ) : (
-              <p className="placeholder-text">
-                Marca un inicio y un fin (o edita un segmento) para rellenar los datos de TGMD-3.
-              </p>
-            )}
-          </div>
         </section>
       </main>
+      {showFormModal && (
+        <>
+          <div className="dialog-backdrop" onClick={() => setShowFormModal(false)} />
+          <div className="dialog-card" role="dialog" aria-modal="true">
+            <div className="step-header">
+              {['1. Reproducir y ubicar', '2. Marcar inicio/fin', '3. Etiquetar segmento', '4. Guardar'].map(
+                (label, idx) => {
+                  const stepIndex = idx + 1
+                  const active =
+                    (stepIndex === 1 && pendingStart === null) ||
+                    (stepIndex === 2 && pendingStart !== null && pendingEnd === null) ||
+                    (stepIndex === 3 && pendingEnd !== null && !!draft) ||
+                    (stepIndex === 4 && pendingEnd !== null && !draft && lastSaved)
+                  return (
+                    <span key={label} className={`step-pill ${active ? 'active' : ''}`}>
+                      {label}
+                    </span>
+                  )
+                },
+              )}
+      </div>
+            <div className="dialog-body">
+              <div className="dialog-left">
+                <VideoPlayer
+                  src={videoSrc}
+                  videoRef={videoRef}
+                  isPlaying={isPlaying}
+                  playbackRate={playbackRate}
+                isMuted={isMuted}
+                  isLoading={isVideoLoading}
+                  seekTo={pendingSeek ?? undefined}
+                onRequestExpand={() => setIsExpanded(true)}
+                  onDuration={(d) => {
+                    setDuration(d)
+                    setVideoMeta((m) => (m ? { ...m, duration: d } : m))
+                    setIsVideoLoading(false)
+                  }}
+                  onTimeUpdate={(t) => setCurrentTime(t)}
+                  onEnded={() => setIsPlaying(false)}
+                  onPlayStateChange={(playing) => setIsPlaying(playing)}
+                />
+                <PlaybackControls
+                  isPlaying={isPlaying}
+                  currentTime={currentTime}
+                  duration={duration}
+                  playbackRate={playbackRate}
+                isMuted={isMuted}
+                  onTogglePlay={togglePlay}
+                onToggleMute={() => setIsMuted((m) => !m)}
+                  onChangeSpeed={(r) => setPlaybackRate(r)}
+                  onJumpBackward={() => jump(-2)}
+                  onJumpForward={() => jump(2)}
+                />
+                <div className="marker-row">
+                  <button
+                    onClick={markStart}
+                    disabled={!selectedAction}
+                    title={!selectedAction ? 'Selecciona una acción primero' : 'Marcar inicio'}
+                  >
+                    <img className="icon" src="/icon-flag.png" alt="" />
+                    Marcar inicio
+                  </button>
+                  <button
+                    onClick={markEnd}
+                    disabled={!selectedAction}
+                    title={!selectedAction ? 'Selecciona una acción primero' : 'Marcar fin'}
+                  >
+                    <img className="icon" src="/icon-flag.png" alt="" />
+                    Marcar fin
+        </button>
+                  <div className="pending">
+                    {pendingStart !== null && <span className="chip">Inicio: {formatTime(pendingStart)}</span>}
+                    {pendingEnd !== null && <span className="chip">Fin: {formatTime(pendingEnd)}</span>}
+                  </div>
+                  <div className="action-selector">
+                    <img className="icon icon-tag" src="/icon-tag.png" alt="" />
+                    <label>
+                      Acción a anotar
+                      <select
+                        value={selectedAction || ''}
+                        onChange={(e) => {
+                          const val = e.target.value as ActionId | ''
+                          selectAction(val)
+                        }}
+                      >
+                        <option value="">Escoge una acción</option>
+                        {TGMD_ACTIONS.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </div>
+                <Timeline
+                  duration={duration}
+                  currentTime={currentTime}
+                  onSeek={handleSeek}
+                  onRequestPreview={requestPreview}
+                  previewUrl={previewUrl}
+                  previewTime={previewTime ?? undefined}
+                >
+                  <ActionTimeline segments={segments} duration={duration} onSelect={(s) => handleSeek(s.startSec)} />
+                </Timeline>
+              </div>
+              <div className="dialog-right">
+                <div className="panel-header">
+                  <h3>Formulario de anotación</h3>
+                  <span className="video-id">Video ID: {currentVideoId}</span>
+                </div>
+                {draft ? (
+                  <AnnotationForm
+                    key={draft.id ?? `${draft.startSec}-${draft.endSec}`}
+                    draft={{ ...draft, annotatorId: user.username }}
+                    annotatorLocked={user.username}
+                    lockAction={selectedAction as ActionId}
+                    videoSrc={videoSrc}
+                    onRetakeMarks={() => {
+                      if (draft) {
+                        setPendingStart(draft.startSec)
+                        setPendingEnd(draft.endSec)
+                        setSelectedAction(draft.action)
+                        setShowFormModal(false)
+                        setIsExpanded(true)
+                      }
+                    }}
+                    onCancel={() => {
+                      setShowFormModal(false)
+                      resetAnnotationState()
+                    }}
+                    onSubmit={(segment) => {
+                      handleSubmitSegment(segment)
+                    }}
+                  />
+                ) : (
+                  <p className="placeholder-text">
+                    Marca un inicio y un fin (o edita un segmento) para rellenar los datos de TGMD-3.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+      <div className="toast-region" aria-live="polite" aria-atomic="true">
+        {status && (
+          <div className="toast">
+            <span>{status}</span>
+            {lastSaved && (
+              <button
+                className="ghost"
+                onClick={() => {
+                  setSegments((prev) => prev.filter((s) => s.id !== lastSaved.id))
+                  setStatus('Último segmento deshecho.')
+                  setLastSaved(null)
+                }}
+              >
+                Deshacer
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

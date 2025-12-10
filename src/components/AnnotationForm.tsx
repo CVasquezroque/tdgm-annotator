@@ -18,13 +18,30 @@ interface Props {
   onCancel: () => void
   onSubmit: (segment: Segment) => void
   annotatorLocked?: string
+  lockAction?: ActionId
+  videoSrc?: string | null
+  onRetakeMarks?: () => void
 }
 
-export function AnnotationForm({ draft, onCancel, onSubmit, annotatorLocked }: Props) {
+export function AnnotationForm({
+  draft,
+  onCancel,
+  onSubmit,
+  annotatorLocked,
+  lockAction,
+  videoSrc,
+  onRetakeMarks,
+}: Props) {
   const [form, setForm] = useState<AnnotationDraft>(draft)
   const [error, setError] = useState<string | null>(null)
 
+  const duration = Number.isFinite(form.endSec - form.startSec) ? Math.max(0, form.endSec - form.startSec) : 0
+
   const handleSave = () => {
+    if (!form.action) {
+      setError('Selecciona una acción.')
+      return
+    }
     if (form.endSec <= form.startSec) {
       setError('El fin debe ser mayor que el inicio.')
       return
@@ -48,6 +65,7 @@ export function AnnotationForm({ draft, onCancel, onSubmit, annotatorLocked }: P
           Acción TGMD-3
           <select
             value={form.action}
+            disabled={!!lockAction}
             onChange={(e) => setForm((f) => ({ ...f, action: e.target.value as ActionId }))}
           >
             {TGMD_ACTIONS.map((a) => (
@@ -78,6 +96,11 @@ export function AnnotationForm({ draft, onCancel, onSubmit, annotatorLocked }: P
             onChange={(e) => setForm((f) => ({ ...f, endSec: Number(e.target.value) }))}
           />
           <small>{formatTime(form.endSec)}</small>
+        </label>
+        <label>
+          Duración (s)
+          <input type="text" value={duration.toFixed(2)} disabled />
+          <small>{formatTime(duration)}</small>
         </label>
         <label>
           Repetición
@@ -111,6 +134,40 @@ export function AnnotationForm({ draft, onCancel, onSubmit, annotatorLocked }: P
           rows={2}
         />
       </label>
+      {videoSrc && Number.isFinite(form.startSec) && Number.isFinite(form.endSec) && form.endSec > form.startSec && (
+        <div className="preview-block">
+          <div className="preview-header">
+            <span className="preview-label">Previsualización del segmento</span>
+            {onRetakeMarks && (
+              <button type="button" className="secondary" onClick={onRetakeMarks}>
+                Reabrir marcadores
+              </button>
+            )}
+          </div>
+          <video
+            className="preview-video"
+            src={videoSrc}
+            controls
+            preload="metadata"
+            muted
+            autoPlay
+            playsInline
+            onLoadedMetadata={(e) => {
+              const v = e.currentTarget
+              v.playbackRate = 0.5
+              v.currentTime = form.startSec
+              void v.play().catch(() => {})
+            }}
+            onTimeUpdate={(e) => {
+              const v = e.currentTarget
+              if (v.currentTime >= form.endSec - 0.05) {
+                v.currentTime = form.startSec
+                void v.play().catch(() => {})
+              }
+            }}
+          />
+        </div>
+      )}
       {error && <div className="form-error">{error}</div>}
       <div className="form-actions">
         <button onClick={handleSave}>Guardar segmento</button>

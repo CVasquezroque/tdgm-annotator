@@ -46,14 +46,17 @@ export function SegmentList({ segments, onEdit, onDelete, onSeek }: Props) {
               <td>{s.annotatorId ?? ''}</td>
               <td className="notes-cell">{s.notes}</td>
               <td className="row-actions">
-                <button onClick={() => onSeek(s.startSec)}>
-                  <img className="icon" src="/icon-segment.png" alt="" /> Ir
+                <button onClick={() => onSeek(s.startSec)} title="Ir al segmento">
+                  <img className="icon" src="/icon-segment.png" alt="Ir" />
+                  <span className="btn-text">Ir</span>
                 </button>
-                <button onClick={() => onEdit(s)}>
-                  <img className="icon" src="/icon-edit.png" alt="" /> Editar
+                <button onClick={() => onEdit(s)} title="Editar segmento">
+                  <img className="icon" src="/icon-edit.png" alt="Editar" />
+                  <span className="btn-text">Editar</span>
                 </button>
-                <button onClick={() => onDelete(s.id)}>
-                  <img className="icon" src="/icon-trash.png" alt="" /> Eliminar
+                <button onClick={() => onDelete(s.id)} title="Eliminar segmento">
+                  <img className="icon" src="/icon-trash.png" alt="Eliminar" />
+                  <span className="btn-text">Eliminar</span>
                 </button>
               </td>
             </tr>

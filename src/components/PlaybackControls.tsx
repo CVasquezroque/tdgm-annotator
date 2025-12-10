@@ -7,7 +7,9 @@ interface Props {
   currentTime: number
   duration: number
   playbackRate: number
+  isMuted: boolean
   onTogglePlay: () => void
+  onToggleMute: () => void
   onChangeSpeed: (rate: number) => void
   onJumpBackward?: () => void
   onJumpForward?: () => void
@@ -18,7 +20,9 @@ export function PlaybackControls({
   currentTime,
   duration,
   playbackRate,
+  isMuted,
   onTogglePlay,
+  onToggleMute,
   onChangeSpeed,
   onJumpBackward,
   onJumpForward,
@@ -43,6 +47,9 @@ export function PlaybackControls({
         </div>
       </div>
       <div className="controls-right">
+        <button onClick={onToggleMute} className="secondary">
+          {isMuted ? 'Activar audio' : 'Silenciar'}
+        </button>
         <label className="speed-label">
           <img className="icon" src="/icon-speed.png" alt="" />
           Velocidad
