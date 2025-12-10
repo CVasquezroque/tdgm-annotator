@@ -1,60 +1,178 @@
-# TGMD-3 Video Annotator
+<p align="center">
+  <img src="public/logo.png" alt="DIANA Logo" width="120" />
+</p>
 
-Este proyecto busca ofrecer una herramienta local, estable y fácil de usar para la anotación manual de los 13 movimientos del TGMD-3 en videos de niños, pensada para flujos clínicos, educativos y de investigación. La prioridad es que cualquier equipo institucional pueda cargar videos locales, marcar segmentos con precisión estilo ELAN, revisar/editar las anotaciones y exportar a CSV con los IDs oficiales del TGMD-3, sin depender de un backend ni instalaciones complejas.
+<h1 align="center">DIANA Annotation Tool</h1>
 
-Herramienta local para segmentar manualmente videos de habilidades motoras TGMD-3. Construida con React + TypeScript + Vite usando el reproductor HTML5 nativo (probado, mantenible y sin dependencias exóticas).
+<p align="center">
+  Plataforma web para segmentación y anotación de habilidades motoras TGMD-3 en videos de niños.
+</p>
 
-## ¿Por qué esta pila?
+---
 
-- **Web local y ligera**: Vite + React es estándar, ampliamente documentado y corre en navegadores actuales de hospitales/escuelas sin backend. Permite empaquetar como app de escritorio en el futuro (Electron/Tauri) sin reescribir.
-- **Reproductor robusto**: Se apoya en el elemento `<video>` del navegador (acelerado por hardware) y controles propios, evitando motores propietarios. Previsualizaciones se generan con un video oculto + canvas, patrón común y mantenible.
-- **Arquitectura clara**: Componentes separados (`VideoPlayer`, `Timeline`, `SegmentTrack`, `SegmentList`, `AnnotationForm`) y utilidades (`csvExport`, `time`). La ontología TGMD-3 está centralizada en `src/constants/actions.ts`.
+## Descripción
+
+**DIANA Annotation Tool** es una herramienta web diseñada para la anotación manual de los 13 movimientos del Test de Desarrollo Motor Grueso (TGMD-3) en videos. Está pensada para flujos clínicos, educativos y de investigación, permitiendo:
+
+- Cargar videos locales (MP4 u otros formatos compatibles)
+- Marcar segmentos de inicio/fin con precisión
+- Etiquetar cada segmento con una de las 13 habilidades TGMD-3
+- Asignar repeticiones automáticamente por acción
+- Exportar anotaciones a CSV con IDs oficiales
+
+## Características principales
+
+- **Reproductor de video** con controles de velocidad (0.25x - 2x), saltos ±2s y navegación precisa
+- **Timeline visual** estilo Gantt con filas por acción anotada
+- **Atajos de teclado** para anotación rápida
+- **Autenticación** con Firebase (email/contraseña)
+- **Export CSV** con columnas: `video_id`, `file_path`, `action`, `start_sec`, `end_sec`, `repetition_id`, `annotator_id`, `notes`
+
+## Stack tecnológico
+
+- **Frontend**: React + TypeScript + Vite
+- **Autenticación**: Firebase Auth
+- **Estilos**: CSS custom (responsive, mobile-first)
+- **Reproductor**: HTML5 `<video>` nativo
+
+## Estructura del proyecto
+
+```
+tgdm-annotator/
+├── public/
+│   ├── logo.png
+│   └── icon-*.png          # Iconos UI
+├── src/
+│   ├── components/
+│   │   ├── ActionTimeline.tsx
+│   │   ├── AnnotationForm.tsx
+│   │   ├── LoginCard.tsx
+│   │   ├── PlaybackControls.tsx
+│   │   ├── SegmentList.tsx
+│   │   ├── SegmentTrack.tsx
+│   │   ├── ShortcutsHelp.tsx
+│   │   ├── Timeline.tsx
+│   │   ├── VideoLoader.tsx
+│   │   └── VideoPlayer.tsx
+│   ├── constants/
+│   │   └── actions.ts      # Definición TGMD-3 (IDs, etiquetas, colores)
+│   ├── hooks/
+│   │   ├── useAuth.ts
+│   │   ├── useKeyboardShortcuts.ts
+│   │   └── useThumbnailGenerator.ts
+│   ├── utils/
+│   │   ├── csvExport.ts
+│   │   └── time.ts
+│   ├── firebase.ts         # Configuración Firebase
+│   ├── types.ts
+│   ├── App.tsx
+│   ├── App.css
+│   ├── index.css
+│   └── main.tsx
+├── .env                    # Variables de entorno (NO commitear)
+├── .gitignore
+├── package.json
+├── tsconfig.json
+└── vite.config.ts
+```
 
 ## Requisitos previos
-- Node.js 18+ (se recomienda 20+).
 
-## Instalación y ejecución
-```bash
-npm install
-# Frontend
-npm run dev    # http://localhost:5173 (usa VITE_AUTH_URL para apuntar al backend)
-npm run build  # build de producción estático
+- Node.js 20.19+ o 22.12+
+- Cuenta en [Firebase](https://console.firebase.google.com/)
 
-# Backend de autenticación local (Node + SQLite)
-npm run server # http://localhost:4000 (env: CORS_ORIGIN, JWT_SECRET)
+## Configuración de Firebase
+
+1. Crear proyecto en [Firebase Console](https://console.firebase.google.com/)
+2. Ir a **Authentication** → **Sign-in method** → Habilitar **Email/Password**
+3. Ir a **Project settings** → **General** → Copiar configuración del SDK web
+4. Crear archivo `.env` en la raíz del proyecto:
+
+```env
+VITE_FIREBASE_API_KEY=tu_api_key
+VITE_FIREBASE_AUTH_DOMAIN=tu_proyecto.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=tu_proyecto
+VITE_FIREBASE_STORAGE_BUCKET=tu_proyecto.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
+VITE_FIREBASE_APP_ID=1:123456789:web:abcdef
 ```
-Variables relevantes (frontend):
-- `VITE_AUTH_URL`: URL del backend de auth (por defecto http://localhost:4000)
 
-Backend: `server/index.cjs` (Express + JWT + SQLite, cookie httpOnly). **No commitees `.env` ni `auth.db`**.
+## Instalación y ejecución local
+
+```bash
+# Clonar repositorio
+git clone https://github.com/CVasquezroque/tdgm-annotator.git
+cd tdgm-annotator
+
+# Instalar dependencias
+npm install
+
+# Configurar variables de entorno (ver sección anterior)
+# Crear archivo .env con las claves de Firebase
+
+# Ejecutar en desarrollo
+npm run dev
+# Abre http://localhost:5173
+
+# Build de producción
+npm run build
+# Genera carpeta dist/
+```
+
+## Despliegue en Netlify
+
+1. Conectar repositorio de GitHub en Netlify
+2. Configurar:
+   - **Build command**: `npm run build`
+   - **Publish directory**: `dist`
+3. Agregar variables de entorno en Netlify (Site settings → Environment):
+   - `VITE_FIREBASE_API_KEY`
+   - `VITE_FIREBASE_AUTH_DOMAIN`
+   - `VITE_FIREBASE_PROJECT_ID`
+   - `VITE_FIREBASE_STORAGE_BUCKET`
+   - `VITE_FIREBASE_MESSAGING_SENDER_ID`
+   - `VITE_FIREBASE_APP_ID`
+4. Deploy
 
 ## Uso rápido
-1. **Cargar video local**: botón “Seleccionar video local”.
-2. **Reproducir y navegar**: play/pausa, saltos ±2s, barra de tiempo arrastrable con miniatura de previsualización.
-3. **Marcar segmento**: inicio/fin (botones o atajos i/f). Se abre el formulario.
-4. **Etiquetar**: elegir acción TGMD-3, repetición se asigna automáticamente, anotador se toma del usuario logueado, notas opcionales.
-5. **Gestionar**: tabla de segmentos permite ir al inicio, editar o eliminar; la pista coloreada refleja los cambios.
-6. **Exportar CSV**: botón “Exportar CSV” genera archivo con columnas exactas `video_id,file_path,action,start_sec,end_sec,repetition_id,annotator_id,notes`.
+
+1. **Iniciar sesión** o crear cuenta
+2. **Cargar video** local (MP4)
+3. **Reproducir** y navegar con controles o atajos
+4. **Marcar segmento**: click en video para expandir → seleccionar acción → marcar inicio (A) y fin (D)
+5. **Guardar** segmento (S) con notas opcionales
+6. **Exportar CSV** con todas las anotaciones
 
 ## Atajos de teclado
-- Espacio: play/pausa
-- `i`: marcar inicio
-- `f`: marcar fin
-- `← / →`: saltar 2s
 
-## Estructura relevante
-- `src/constants/actions.ts`: lista fija TGMD-3 (IDs, etiquetas, colores).
-- `src/utils/csvExport.ts`: lógica de exportación CSV.
-- `src/components/`: UI modular
-  - `VideoPlayer`, `Timeline` + `ActionTimeline` (Gantt por acción), `SegmentList`, `AnnotationForm`, `ShortcutsHelp`, `LoginCard`.
-- `src/hooks/useThumbnailGenerator.ts`: miniaturas con `<video>` oculto + `<canvas>`.
-- `src/hooks/useAuth.ts`: login/register/logout contra el backend.
-- `src/types.ts`: tipos `ActionId`, `Segment`, `VideoMeta`.
+| Tecla | Acción |
+|-------|--------|
+| `Espacio` | Play/Pausa |
+| `A` | Marcar inicio |
+| `D` | Marcar fin |
+| `S` | Guardar segmento |
+| `←` / `→` | Saltar ±2s |
+| `Alt + ←/→` | Ajuste fino (~0.04s) |
+| `1-9, Q, W, E` | Seleccionar acción TGMD-3 |
 
-## CSV / ID de video
-`video_id` se deriva del nombre de archivo sin extensión. `file_path` almacena el nombre recibido del `File` (los navegadores no exponen la ruta completa por seguridad).
+## Acciones TGMD-3
 
-## Ajustes recomendados
-- **Latencia de scrubbing**: el generador de miniaturas usa `seeked`; si los videos son muy largos, se puede limitar la frecuencia de llamadas en `Timeline` o reducir el ancho de miniatura en `useThumbnailGenerator`.
-- **Distribución**: se puede empaquetar con `vite build` y servir como app estática o integrarse en Electron/Tauri si se requiere un ejecutable.
+| Subtest Locomotor | Subtest Ball Skills |
+|-------------------|---------------------|
+| Correr (Run) | Bateo estacionario (Stationary dribble) |
+| Galope (Gallop) | Dribleo (Dribble) |
+| Saltar en un pie (Hop) | Atrapar (Catch) |
+| Salto indio (Skip) | Patear (Kick) |
+| Salto horizontal (Horizontal jump) | Lanzar por encima (Overhand throw) |
+| Deslizamiento (Slide) | Lanzar por debajo (Underhand throw) |
+| | Golpe de derecha (Forehand strike) |
 
+## Autor
+
+**Carlos Vasquez**
+
+- GitHub: [@CVasquezroque](https://github.com/CVasquezroque)
+
+## Licencia
+
+Este proyecto está bajo desarrollo para el Instituto Nacional de Salud del Niño San Borja (INSNSB) - Proyecto DIANA.
