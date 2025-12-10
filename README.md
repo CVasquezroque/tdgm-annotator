@@ -173,6 +173,3 @@ npm run build
 
 - GitHub: [@CVasquezroque](https://github.com/CVasquezroque)
 
-## Licencia
-
-Este proyecto está bajo desarrollo para el Instituto Nacional de Salud del Niño San Borja (INSNSB) - Proyecto DIANA.
