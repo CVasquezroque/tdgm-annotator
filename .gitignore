@@ -31,4 +31,3 @@ server/auth.db
 client_secret.json
 secrets.txt
 CHANGELOG_LOCAL.md
-src/components/PosePreviewOverlay.tsx
