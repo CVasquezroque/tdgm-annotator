@@ -10,6 +10,7 @@ import { AnnotationForm } from './components/AnnotationForm'
 import type { AnnotationDraft } from './components/AnnotationForm'
 import { ShortcutsHelp } from './components/ShortcutsHelp'
 import { LoginCard } from './components/LoginCard'
+import { PosePreviewOverlay } from './components/PosePreviewOverlay'
 import type { ActionId, Segment, VideoMeta } from './types'
 import { TGMD_ACTIONS } from './constants/actions'
 import { exportAnnotationsToCsv } from './utils/csvExport'
@@ -39,6 +40,7 @@ function App() {
   const [showFormModal, setShowFormModal] = useState(false)
   const [lastSaved, setLastSaved] = useState<Segment | null>(null)
   const [pendingSeek, setPendingSeek] = useState<number | null>(null)
+  const [posePreview, setPosePreview] = useState<Segment | null>(null)
   const { user, login, register, resetPassword, clearError, loading: authLoading, error: authError } = useAuth()
 
   const { previewUrl, previewTime, requestPreview } = useThumbnailGenerator(videoSrc)
@@ -187,6 +189,15 @@ function App() {
   const handleDeleteSegment = (id: string) => {
     setSegments((prev) => prev.filter((s) => s.id !== id))
     setStatus('Segmento eliminado.')
+  }
+
+  const handlePosePreview = (segment: Segment) => {
+    if (!videoSrc) {
+      setStatus('Primero carga un video para previsualizar la pose.')
+      return
+    }
+    setIsPlaying(false)
+    setPosePreview(segment)
   }
 
   const jump = (delta: number) => {
@@ -433,6 +444,7 @@ function App() {
                 onEdit={handleEditSegment}
                 onDelete={handleDeleteSegment}
                 onSeek={handleSeek}
+                onPreviewPose={handlePosePreview}
               />
             </div>
           </div>
@@ -602,6 +614,9 @@ function App() {
           </div>
         )}
       </div>
+      {posePreview && videoSrc && (
+        <PosePreviewOverlay segment={posePreview} videoSrc={videoSrc} onClose={() => setPosePreview(null)} />
+      )}
     </div>
   )
 }

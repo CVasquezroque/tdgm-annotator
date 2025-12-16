@@ -7,9 +7,10 @@ interface Props {
   onEdit: (segment: Segment) => void
   onDelete: (id: string) => void
   onSeek: (time: number) => void
+  onPreviewPose?: (segment: Segment) => void
 }
 
-export function SegmentList({ segments, onEdit, onDelete, onSeek }: Props) {
+export function SegmentList({ segments, onEdit, onDelete, onSeek, onPreviewPose }: Props) {
   if (segments.length === 0) {
     return <div className="segment-empty">No hay segmentos aún.</div>
   }
@@ -50,6 +51,11 @@ export function SegmentList({ segments, onEdit, onDelete, onSeek }: Props) {
                   <img className="icon" src="/icon-segment.png" alt="Ir" />
                   <span className="btn-text">Ir</span>
                 </button>
+                {onPreviewPose && (
+                  <button onClick={() => onPreviewPose(s)} title="Previsualizar pose (MediaPipe)">
+                    <span className="btn-text">Pose</span>
+                  </button>
+                )}
                 <button onClick={() => onEdit(s)} title="Editar segmento">
                   <img className="icon" src="/icon-edit.png" alt="Editar" />
                   <span className="btn-text">Editar</span>
