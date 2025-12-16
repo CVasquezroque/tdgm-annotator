@@ -74,6 +74,24 @@ function App() {
     }
   }
 
+  const handleVideoUrl = (url: string, fileName: string) => {
+    setVideoSrc(url)
+    setVideoMeta({ fileName, filePath: `drive://${fileName}`, duration: 0 })
+    setIsVideoLoading(true)
+    setDuration(0)
+    setSegments([])
+    resetAnnotationState()
+    setStatus(null)
+    setIsPlaying(false)
+    setCurrentTime(0)
+    setShowFormModal(false)
+    setLastSaved(null)
+    if (videoRef.current) {
+      videoRef.current.pause()
+      videoRef.current.currentTime = 0
+    }
+  }
+
   const togglePlay = () => {
     const video = videoRef.current
     if (!video) return
@@ -285,7 +303,7 @@ function App() {
           </div>
         </div>
         <div className="header-actions">
-          <VideoLoader onVideoSelected={handleVideoSelected} />
+          <VideoLoader onVideoSelected={handleVideoSelected} onVideoUrl={handleVideoUrl} />
           {videoMeta && (
             <div className="video-meta">
               <div>

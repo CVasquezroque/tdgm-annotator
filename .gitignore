@@ -28,3 +28,6 @@ dist-ssr
 *.db
 server/auth.db
 .env
+client_secret.json
+secrets.txt
+CHANGELOG_LOCAL.md
