@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Segment } from '../types'
 import { FilesetResolver, PoseLandmarker, type NormalizedLandmark } from '@mediapipe/tasks-vision'
 import { formatTime } from '../utils/time'
@@ -152,7 +152,7 @@ export function PosePreviewOverlay({ segment, videoSrc, onClose }: Props) {
   }, [])
 
   // Dibuja landmarks filtrados
-  const drawLandmarks = (landmarks: NormalizedLandmark[]) => {
+  const drawLandmarks = useCallback((landmarks: NormalizedLandmark[]) => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
@@ -184,7 +184,7 @@ export function PosePreviewOverlay({ segment, videoSrc, onClose }: Props) {
       ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 6, 0, Math.PI * 2)
       ctx.fill()
     })
-  }
+  }, [bodySet])
 
   // Bucle de inferencia
   useEffect(() => {
@@ -207,7 +207,7 @@ export function PosePreviewOverlay({ segment, videoSrc, onClose }: Props) {
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [loadingModel, ready, bodySet])
+  }, [drawLandmarks, loadingModel, ready])
 
   return (
     <div className="pose-overlay-backdrop" onClick={onClose}>

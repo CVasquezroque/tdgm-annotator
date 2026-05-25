@@ -23,6 +23,12 @@ interface Props {
   onRetakeMarks?: () => void
 }
 
+function hasIdentifierRisk(value: string | undefined) {
+  if (!value) return false
+  const text = value.toLowerCase()
+  return /\b(dni|nombre|name|colegio|school|apellido)\b/.test(text) || /\d{8,}/.test(text)
+}
+
 export function AnnotationForm({
   draft,
   onCancel,
@@ -36,6 +42,7 @@ export function AnnotationForm({
   const [error, setError] = useState<string | null>(null)
 
   const duration = Number.isFinite(form.endSec - form.startSec) ? Math.max(0, form.endSec - form.startSec) : 0
+  const noteRisk = hasIdentifierRisk(form.notes)
 
   const handleSave = () => {
     if (!form.action) {
@@ -133,7 +140,13 @@ export function AnnotationForm({
           onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
           rows={2}
         />
+        <small>No incluyas nombres, DNI, colegios ni identificadores personales del menor.</small>
       </label>
+      {noteRisk && (
+        <div className="form-warning">
+          Las notas parecen contener un identificador personal. Revisa el texto antes de guardar.
+        </div>
+      )}
       {videoSrc && Number.isFinite(form.startSec) && Number.isFinite(form.endSec) && form.endSec > form.startSec && (
         <div className="preview-block">
           <div className="preview-header">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
 import { VideoLoader } from './components/VideoLoader'
 import { VideoPlayer } from './components/VideoPlayer'
@@ -10,19 +10,30 @@ import { AnnotationForm } from './components/AnnotationForm'
 import type { AnnotationDraft } from './components/AnnotationForm'
 import { ShortcutsHelp } from './components/ShortcutsHelp'
 import { LoginCard } from './components/LoginCard'
+import { ApprovalStatusCard } from './components/ApprovalStatusCard'
 import { PosePreviewOverlay } from './components/PosePreviewOverlay'
-import type { ActionId, Segment, VideoMeta } from './types'
+import { VideoCodeForm } from './components/VideoCodeForm'
+import { AutosaveStatus } from './components/AutosaveStatus'
+import { MySessionsPanel } from './components/MySessionsPanel'
+import { ReviewerSessionsPanel } from './components/ReviewerSessionsPanel'
+import { AdminUsersPanel } from './components/AdminUsersPanel'
+import { ExportPanel } from './components/ExportPanel'
+import type { ActionId, AnnotationSession, Segment, VideoMeta } from './types'
 import { TGMD_ACTIONS } from './constants/actions'
-import { exportAnnotationsToCsv } from './utils/csvExport'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useThumbnailGenerator } from './hooks/useThumbnailGenerator'
+import { useAnnotationSession } from './hooks/useAnnotationSession'
 import { formatTime } from './utils/time'
 import { useAuth } from './hooks/useAuth'
+import { updateOwnSafeProfile } from './services/userProfiles'
 
 function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const videoObjectUrlRef = useRef<string | null>(null)
   const [videoSrc, setVideoSrc] = useState<string | null>(null)
   const [videoMeta, setVideoMeta] = useState<VideoMeta | null>(null)
+  const [videoCode, setVideoCode] = useState('')
+  const [isVideoCodeInputValid, setIsVideoCodeInputValid] = useState(false)
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -31,7 +42,6 @@ function App() {
   const [isVideoLoading, setIsVideoLoading] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
   const [selectedAction, setSelectedAction] = useState<ActionId | ''>('')
-  const [segments, setSegments] = useState<Segment[]>([])
   const [pendingStart, setPendingStart] = useState<number | null>(null)
   const [pendingEnd, setPendingEnd] = useState<number | null>(null)
   const [draft, setDraft] = useState<AnnotationDraft | null>(null)
@@ -41,9 +51,105 @@ function App() {
   const [lastSaved, setLastSaved] = useState<Segment | null>(null)
   const [pendingSeek, setPendingSeek] = useState<number | null>(null)
   const [posePreview, setPosePreview] = useState<Segment | null>(null)
-  const { user, login, register, resetPassword, clearError, loading: authLoading, error: authError } = useAuth()
+  const [showProfileModal, setShowProfileModal] = useState(false)
+  const [profileDraftName, setProfileDraftName] = useState('')
+  const [profileDraftInstitution, setProfileDraftInstitution] = useState('')
+  const [profileSaveError, setProfileSaveError] = useState<string | null>(null)
+  const [isProfileSaving, setIsProfileSaving] = useState(false)
+  const {
+    user,
+    profile,
+    accessStatus,
+    login,
+    register,
+    resetPassword,
+    refreshVerification,
+    refreshProfile,
+    logout,
+    clearError,
+    loading: authLoading,
+    error: authError,
+  } = useAuth()
 
   const { previewUrl, previewTime, requestPreview } = useThumbnailGenerator(videoSrc)
+
+  const annotatorCode = profile?.annotator_code.trim() || user?.uid.slice(0, 8).toUpperCase() || ''
+  const sessionState = useAnnotationSession(profile, videoCode, duration || null)
+  const { session, segments, editable, autosaveStatus } = sessionState
+  const sessionMatchesCode = Boolean(session && videoCode && session.video_code === videoCode)
+
+  const canAnnotateVideo = Boolean(
+    videoSrc && isVideoCodeInputValid && videoCode.trim() && sessionMatchesCode && !sessionState.loading && editable,
+  )
+  const canSubmitSession = Boolean(
+    videoSrc &&
+      isVideoCodeInputValid &&
+      videoCode.trim() &&
+      sessionMatchesCode &&
+      !sessionState.loading &&
+      editable &&
+      segments.length > 0,
+  )
+  const canManageUsers = profile?.role === 'admin' || profile?.role === 'supervisor'
+  const canReview = canManageUsers || profile?.role === 'reviewer'
+  const roleLabel =
+    profile?.role === 'admin'
+      ? 'Admin'
+      : profile?.role === 'supervisor'
+        ? 'Supervisor'
+        : profile?.role === 'reviewer'
+          ? 'Reviewer'
+          : 'Annotator'
+  const displayName = profile?.full_name?.trim() || user?.username || ''
+  const annotationReadiness = (() => {
+    if (!videoMeta) return 'Carga un video local para iniciar.'
+    if (!isVideoCodeInputValid || !videoCode.trim()) return 'Ingresa un codigo de video para iniciar la anotacion.'
+    if (sessionState.loading) return 'Preparando sesion de anotacion...'
+    if (sessionState.error) return 'No se pudo preparar la sesion. Revisa tu conexion o permisos.'
+    if (sessionMatchesCode) return 'Sesion lista'
+    return 'Preparando sesion de anotacion...'
+  })()
+
+  const handleValidVideoCode = useCallback((code: string) => {
+    setIsVideoCodeInputValid(true)
+    setVideoCode((previous) => {
+      if (previous !== code) {
+        setStatus('Preparando sesion de anotacion...')
+      }
+      return code
+    })
+  }, [])
+
+  const handlePendingVideoCode = useCallback(() => {
+    setIsVideoCodeInputValid(false)
+  }, [])
+
+  const openProfileEditor = () => {
+    setProfileDraftName(profile?.full_name ?? '')
+    setProfileDraftInstitution(profile?.institution ?? '')
+    setProfileSaveError(null)
+    setShowProfileModal(true)
+  }
+
+  const handleSaveProfile = async () => {
+    if (!profile) return
+    setIsProfileSaving(true)
+    setProfileSaveError(null)
+    try {
+      await updateOwnSafeProfile(profile.uid, {
+        fullName: profileDraftName,
+        institution: profileDraftInstitution,
+      })
+      await refreshProfile()
+      setShowProfileModal(false)
+      setStatus('Perfil actualizado.')
+    } catch (e) {
+      console.warn('No se pudo actualizar el perfil seguro.', e)
+      setProfileSaveError('No se pudo actualizar el perfil. Revisa tu conexion o permisos.')
+    } finally {
+      setIsProfileSaving(false)
+    }
+  }
 
   const nextRepetitionFor = (actionId: ActionId | '') => {
     if (!actionId) return ''
@@ -57,33 +163,28 @@ function App() {
     setDraft(null)
   }
 
-  const handleVideoSelected = (file: File) => {
-    const src = URL.createObjectURL(file)
-    setVideoSrc(src)
-    setVideoMeta({ fileName: file.name, filePath: file.name, duration: 0 })
-    setIsVideoLoading(true)
-    setDuration(0)
-    setSegments([])
-    resetAnnotationState()
-    setStatus(null)
-    setIsPlaying(false)
-    setCurrentTime(0)
-    setShowFormModal(false)
-    setLastSaved(null)
-    if (videoRef.current) {
-      videoRef.current.pause()
-      videoRef.current.currentTime = 0
+  const revokeCurrentVideoUrl = () => {
+    if (videoObjectUrlRef.current) {
+      URL.revokeObjectURL(videoObjectUrlRef.current)
+      videoObjectUrlRef.current = null
     }
   }
 
-  const handleVideoUrl = (url: string, fileName: string) => {
-    setVideoSrc(url)
-    setVideoMeta({ fileName, filePath: `drive://${fileName}`, duration: 0 })
+  const handleVideoSelected = (file: File) => {
+    revokeCurrentVideoUrl()
+    const src = URL.createObjectURL(file)
+    videoObjectUrlRef.current = src
+    setVideoSrc(src)
+    setVideoMeta({
+      source: 'local',
+      duration: 0,
+    })
+    setVideoCode('')
+    setIsVideoCodeInputValid(false)
     setIsVideoLoading(true)
     setDuration(0)
-    setSegments([])
     resetAnnotationState()
-    setStatus(null)
+    setStatus('Video local cargado. Ingresa un codigo pseudonimizado para iniciar.')
     setIsPlaying(false)
     setCurrentTime(0)
     setShowFormModal(false)
@@ -115,8 +216,12 @@ function App() {
   }
 
   const markStart = () => {
+    if (!canAnnotateVideo) {
+      setMarkError('Ingresa un codigo de video valido y espera a que la anotacion este lista.')
+      return
+    }
     if (!selectedAction) {
-      setMarkError('Debes escoger una acción.')
+      setMarkError('Debes escoger una accion.')
       return
     }
     setMarkError(null)
@@ -127,8 +232,12 @@ function App() {
   }
 
   const markEnd = () => {
+    if (!canAnnotateVideo) {
+      setMarkError('Ingresa un codigo de video valido y espera a que la anotacion este lista.')
+      return
+    }
     if (!selectedAction) {
-      setMarkError('Debes escoger una acción.')
+      setMarkError('Debes escoger una accion.')
       return
     }
     setMarkError(null)
@@ -146,7 +255,7 @@ function App() {
       action: selectedAction,
       startSec: pendingStart,
       endSec: currentTime,
-      annotatorId: user?.username,
+      annotatorId: annotatorCode,
       repetitionId: nextRepetitionFor(selectedAction),
     })
     setIsExpanded(false)
@@ -159,19 +268,20 @@ function App() {
       segment.repetitionId && segment.repetitionId.trim().length > 0
         ? segment.repetitionId
         : nextRepetitionFor(segment.action)
-    const withAnnotator = user?.username ? { ...segment, annotatorId: user.username, repetitionId: repetition } : { ...segment, repetitionId: repetition }
-    setSegments((prev) => {
+    const withAnnotator = { ...segment, annotatorId: annotatorCode, repetitionId: repetition }
+    sessionState.replaceSegments((prev) => {
       const filtered = prev.filter((p) => p.id !== segment.id)
       return [...filtered, withAnnotator].sort((a, b) => a.startSec - b.startSec)
     })
     resetAnnotationState()
-    const msg = `Segmento guardado: ${withAnnotator.action} ${formatTime(withAnnotator.startSec)} - ${formatTime(withAnnotator.endSec)}`
+    const msg = `Segmento guardado: ${withAnnotator.action} ${formatTime(withAnnotator.startSec)} - ${formatTime(
+      withAnnotator.endSec,
+    )}`
     setStatus(msg)
     setLastSaved(withAnnotator)
     setSelectedAction('')
     setIsExpanded(false)
     setShowFormModal(false)
-    // Mantener el video en el punto final del segmento guardado
     setPendingSeek(segment.endSec)
     setCurrentTime(segment.endSec)
   }
@@ -187,7 +297,7 @@ function App() {
   }
 
   const handleDeleteSegment = (id: string) => {
-    setSegments((prev) => prev.filter((s) => s.id !== id))
+    sessionState.replaceSegments((prev) => prev.filter((s) => s.id !== id))
     setStatus('Segmento eliminado.')
   }
 
@@ -207,13 +317,6 @@ function App() {
     setCurrentTime(next)
   }
 
-  const jumpPrecise = (delta: number) => {
-    if (!videoRef.current) return
-    const next = Math.min(Math.max(0, currentTime + delta), duration || currentTime)
-    videoRef.current.currentTime = next
-    setCurrentTime(next)
-  }
-
   const selectAction = (val: ActionId | '') => {
     setSelectedAction(val)
     setDraft((d) => {
@@ -222,16 +325,23 @@ function App() {
     })
   }
 
+  const handleOpenStoredSession = (nextSession: AnnotationSession, nextSegments: Segment[]) => {
+    setVideoCode(nextSession.video_code)
+    setIsVideoCodeInputValid(true)
+    sessionState.refreshFromSession(nextSession, nextSegments)
+    setStatus('Anotacion cargada. Carga el video local correspondiente para reproducirlo.')
+  }
+
   useKeyboardShortcuts({
     onTogglePlay: togglePlay,
     onMarkStart: markStart,
     onMarkEnd: markEnd,
     onJumpBackward: () => jump(-2),
     onJumpForward: () => jump(2),
-    onJumpBackwardPrecise: () => jumpPrecise(-0.04),
-    onJumpForwardPrecise: () => jumpPrecise(0.04),
+    onJumpBackwardPrecise: () => jump(-0.04),
+    onJumpForwardPrecise: () => jump(0.04),
     onSaveSegment: () => {
-      if (draft && draft.endSec > draft.startSec) {
+      if (draft && draft.endSec > draft.startSec && canAnnotateVideo) {
         handleSubmitSegment({
           id: draft.id ?? crypto.randomUUID?.() ?? String(Date.now()),
           action: draft.action,
@@ -247,9 +357,15 @@ function App() {
     actions: TGMD_ACTIONS,
   })
 
-  const currentVideoId = useMemo(() => videoMeta?.fileName ?? 'video', [videoMeta])
-
-  const canExport = videoMeta && segments.length > 0
+  useEffect(
+    () => () => {
+      if (videoObjectUrlRef.current) {
+        URL.revokeObjectURL(videoObjectUrlRef.current)
+        videoObjectUrlRef.current = null
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     if (!isExpanded) return
@@ -289,7 +405,7 @@ function App() {
     return (
       <div className="auth-shell">
         <div className="login-card">
-          <p>Cargando sesión...</p>
+          <p>Cargando sesion...</p>
         </div>
       </div>
     )
@@ -298,8 +414,27 @@ function App() {
   if (!user) {
     return (
       <div className="auth-shell">
-        <LoginCard onLogin={login} onRegister={register} onResetPassword={resetPassword} onClearError={clearError} error={authError} />
+        <LoginCard
+          onLogin={login}
+          onRegister={register}
+          onResetPassword={resetPassword}
+          onClearError={clearError}
+          error={authError}
+        />
       </div>
+    )
+  }
+
+  if (accessStatus !== 'allowed') {
+    return (
+      <ApprovalStatusCard
+        user={user}
+        profile={profile}
+        accessStatus={accessStatus}
+        error={authError}
+        onRefreshVerification={refreshVerification}
+        onLogout={logout}
+      />
     )
   }
 
@@ -310,28 +445,22 @@ function App() {
           <img className="brand-logo" src="/logo.png" alt="DIANA logo" />
           <div className="brand-text">
             <h1>DIANA Annotation Tool</h1>
-            <p>Plataforma web para segmentación TGMD-3.</p>
+            <p>Plataforma web para segmentacion TGMD-3.</p>
           </div>
         </div>
         <div className="header-actions">
-          <VideoLoader onVideoSelected={handleVideoSelected} onVideoUrl={handleVideoUrl} />
-          {videoMeta && (
-            <div className="video-meta">
-              <div>
-                <strong>Archivo:</strong> {videoMeta.fileName}
-              </div>
-              <div>
-                <strong>Duración:</strong> {formatTime(duration)}
-              </div>
-            </div>
-          )}
-          <button
-            disabled={!canExport}
-            onClick={() => videoMeta && exportAnnotationsToCsv(segments, { ...videoMeta, duration })}
-          >
-            <img className="icon" src="/icon-download.png" alt="" />
-            Exportar CSV
+          <div className="account-pill" aria-label="Usuario actual">
+            <span>{displayName}</span>
+            <strong>{annotatorCode || 'sin codigo'}</strong>
+            <em>{roleLabel}</em>
+          </div>
+          <button className="secondary" onClick={openProfileEditor}>
+            Editar perfil
           </button>
+          <button className="secondary" onClick={() => void logout()}>
+            Cerrar sesion
+          </button>
+          <VideoLoader onVideoSelected={handleVideoSelected} />
         </div>
       </header>
 
@@ -340,6 +469,22 @@ function App() {
       <main className="layout">
         {isExpanded && <div className="overlay-backdrop" onClick={() => setIsExpanded(false)} />}
         <section className={`player-section ${isExpanded ? 'expanded' : ''}`}>
+          {videoMeta && (
+            <div className="video-meta">
+              <div>
+                <strong>Archivo local:</strong> cargado en este dispositivo
+              </div>
+              <div>
+                <strong>Codigo:</strong> {videoCode || 'pendiente'}
+              </div>
+              <div>
+                <strong>Estado:</strong> {annotationReadiness}
+              </div>
+              <div>
+                <strong>Duracion:</strong> {formatTime(duration)}
+              </div>
+            </div>
+          )}
           {!showFormModal && (
             <VideoPlayer
               src={videoSrc}
@@ -360,32 +505,72 @@ function App() {
               onPlayStateChange={(playing) => setIsPlaying(playing)}
             />
           )}
-          {showFormModal && <div className="player-shell placeholder">Video en el modal de anotación</div>}
+          {showFormModal && <div className="player-shell placeholder">Video en el modal de anotacion</div>}
           <PlaybackControls
             isPlaying={isPlaying}
             currentTime={currentTime}
             duration={duration}
             playbackRate={playbackRate}
-              isMuted={isMuted}
+            isMuted={isMuted}
             onTogglePlay={togglePlay}
-              onToggleMute={() => setIsMuted((m) => !m)}
+            onToggleMute={() => setIsMuted((m) => !m)}
             onChangeSpeed={(r) => setPlaybackRate(r)}
             onJumpBackward={() => jump(-2)}
             onJumpForward={() => jump(2)}
           />
+          <VideoCodeForm
+            key={`${videoSrc ?? 'no-video'}:${videoCode || 'pending'}`}
+            value={videoCode}
+            disabled={!videoMeta}
+            loading={sessionState.loading}
+            ready={sessionMatchesCode}
+            sessionError={sessionState.error}
+            onValidCode={handleValidVideoCode}
+            onPendingCode={handlePendingVideoCode}
+          />
+          {sessionState.recoverableBackup && (
+            <div className="backup-banner">
+              <span>Hay un borrador local recuperable para este codigo.</span>
+              <button className="secondary" onClick={sessionState.restoreBackup}>
+                Restaurar
+              </button>
+              <button className="ghost" onClick={sessionState.discardBackup}>
+                Descartar
+              </button>
+            </div>
+          )}
+          <div className="session-toolbar">
+            <span className={`session-readiness ${sessionState.error ? 'error' : sessionMatchesCode ? 'ready' : 'idle'}`}>
+              {annotationReadiness}
+            </span>
+            <AutosaveStatus status={autosaveStatus} error={sessionState.error} />
+            <button
+              className="primary-strong"
+              disabled={!canSubmitSession}
+              onClick={() =>
+                void sessionState.submit().then(() => {
+                  setStatus('Anotacion enviada para revision.')
+                }).catch(() => {
+                  setStatus('No se pudo enviar. Revisa tu conexion o permisos.')
+                })
+              }
+            >
+              Enviar anotacion
+            </button>
+          </div>
           <div className="marker-row">
             <button
               onClick={markStart}
-              disabled={!selectedAction}
-              title={!selectedAction ? 'Selecciona una acción primero' : 'Marcar inicio'}
+              disabled={!selectedAction || !canAnnotateVideo}
+              title={!canAnnotateVideo ? 'Espera a que la anotacion este lista' : 'Marcar inicio'}
             >
               <img className="icon" src="/icon-flag.png" alt="" />
               Marcar inicio
             </button>
             <button
               onClick={markEnd}
-              disabled={!selectedAction}
-              title={!selectedAction ? 'Selecciona una acción primero' : 'Marcar fin'}
+              disabled={!selectedAction || !canAnnotateVideo}
+              title={!canAnnotateVideo ? 'Espera a que la anotacion este lista' : 'Marcar fin'}
             >
               <img className="icon" src="/icon-flag.png" alt="" />
               Marcar fin
@@ -399,19 +584,13 @@ function App() {
             <div className="action-selector">
               <img className="icon icon-tag" src="/icon-tag.png" alt="" />
               <label>
-                Acción a anotar
+                Accion a anotar
                 <select
                   value={selectedAction || ''}
-                  onChange={(e) => {
-                    const val = e.target.value as ActionId | ''
-                    setSelectedAction(val)
-                    setDraft((d) => {
-                      if (!val) return null
-                      return d ? { ...d, action: val, repetitionId: nextRepetitionFor(val) } : d
-                    })
-                  }}
+                  disabled={!canAnnotateVideo}
+                  onChange={(e) => selectAction(e.target.value as ActionId | '')}
                 >
-                  <option value="">Escoge una acción</option>
+                  <option value="">Escoge una accion</option>
                   {TGMD_ACTIONS.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.label}
@@ -445,9 +624,14 @@ function App() {
                 onDelete={handleDeleteSegment}
                 onSeek={handleSeek}
                 onPreviewPose={handlePosePreview}
+                readOnly={!editable}
               />
             </div>
           </div>
+          <ExportPanel videoMeta={videoMeta} session={session} segments={segments} canExportAll={canReview} />
+          <MySessionsPanel uid={user.uid} onOpenSession={handleOpenStoredSession} />
+          {canReview && profile && <ReviewerSessionsPanel profile={profile} onOpenSession={handleOpenStoredSession} />}
+          {canManageUsers && <AdminUsersPanel actorUid={user.uid} />}
         </section>
       </main>
       {showFormModal && (
@@ -470,7 +654,7 @@ function App() {
                   )
                 },
               )}
-      </div>
+            </div>
             <div className="dialog-body">
               <div className="dialog-left">
                 <VideoPlayer
@@ -478,10 +662,10 @@ function App() {
                   videoRef={videoRef}
                   isPlaying={isPlaying}
                   playbackRate={playbackRate}
-                isMuted={isMuted}
+                  isMuted={isMuted}
                   isLoading={isVideoLoading}
                   seekTo={pendingSeek ?? undefined}
-                onRequestExpand={() => setIsExpanded(true)}
+                  onRequestExpand={() => setIsExpanded(true)}
                   onDuration={(d) => {
                     setDuration(d)
                     setVideoMeta((m) => (m ? { ...m, duration: d } : m))
@@ -496,9 +680,9 @@ function App() {
                   currentTime={currentTime}
                   duration={duration}
                   playbackRate={playbackRate}
-                isMuted={isMuted}
+                  isMuted={isMuted}
                   onTogglePlay={togglePlay}
-                onToggleMute={() => setIsMuted((m) => !m)}
+                  onToggleMute={() => setIsMuted((m) => !m)}
                   onChangeSpeed={(r) => setPlaybackRate(r)}
                   onJumpBackward={() => jump(-2)}
                   onJumpForward={() => jump(2)}
@@ -506,20 +690,20 @@ function App() {
                 <div className="marker-row">
                   <button
                     onClick={markStart}
-                    disabled={!selectedAction}
-                    title={!selectedAction ? 'Selecciona una acción primero' : 'Marcar inicio'}
+                    disabled={!selectedAction || !canAnnotateVideo}
+                    title={!canAnnotateVideo ? 'Espera a que la anotacion este lista' : 'Marcar inicio'}
                   >
                     <img className="icon" src="/icon-flag.png" alt="" />
                     Marcar inicio
                   </button>
                   <button
                     onClick={markEnd}
-                    disabled={!selectedAction}
-                    title={!selectedAction ? 'Selecciona una acción primero' : 'Marcar fin'}
+                    disabled={!selectedAction || !canAnnotateVideo}
+                    title={!canAnnotateVideo ? 'Espera a que la anotacion este lista' : 'Marcar fin'}
                   >
                     <img className="icon" src="/icon-flag.png" alt="" />
                     Marcar fin
-        </button>
+                  </button>
                   <div className="pending">
                     {pendingStart !== null && <span className="chip">Inicio: {formatTime(pendingStart)}</span>}
                     {pendingEnd !== null && <span className="chip">Fin: {formatTime(pendingEnd)}</span>}
@@ -527,15 +711,13 @@ function App() {
                   <div className="action-selector">
                     <img className="icon icon-tag" src="/icon-tag.png" alt="" />
                     <label>
-                      Acción a anotar
+                      Accion a anotar
                       <select
                         value={selectedAction || ''}
-                        onChange={(e) => {
-                          const val = e.target.value as ActionId | ''
-                          selectAction(val)
-                        }}
+                        disabled={!canAnnotateVideo}
+                        onChange={(e) => selectAction(e.target.value as ActionId | '')}
                       >
-                        <option value="">Escoge una acción</option>
+                        <option value="">Escoge una accion</option>
                         {TGMD_ACTIONS.map((a) => (
                           <option key={a.id} value={a.id}>
                             {a.label}
@@ -558,14 +740,14 @@ function App() {
               </div>
               <div className="dialog-right">
                 <div className="panel-header">
-                  <h3>Formulario de anotación</h3>
-                  <span className="video-id">Video ID: {currentVideoId}</span>
+                  <h3>Formulario de anotacion</h3>
+                  <span className="video-id">Video code: {videoCode || 'pendiente'}</span>
                 </div>
                 {draft ? (
                   <AnnotationForm
                     key={draft.id ?? `${draft.startSec}-${draft.endSec}`}
-                    draft={{ ...draft, annotatorId: user.username }}
-                    annotatorLocked={user.username}
+                    draft={{ ...draft, annotatorId: annotatorCode }}
+                    annotatorLocked={annotatorCode}
                     lockAction={selectedAction as ActionId}
                     videoSrc={videoSrc}
                     onRetakeMarks={() => {
@@ -595,6 +777,55 @@ function App() {
           </div>
         </>
       )}
+      {showProfileModal && (
+        <>
+          <div className="dialog-backdrop" onClick={() => setShowProfileModal(false)} />
+          <div className="profile-modal-card" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">
+            <div className="panel-header">
+              <h3 id="profile-modal-title">Editar perfil</h3>
+            </div>
+            <p className="profile-edit-note">
+              Puedes actualizar solo los datos institucionales seguros. Rol, estado, codigo de anotador y aprobaciones
+              quedan bajo control del equipo administrador.
+            </p>
+            <label>
+              Nombre
+              <input
+                value={profileDraftName}
+                onChange={(e) => setProfileDraftName(e.target.value)}
+                placeholder="Nombre y apellido"
+              />
+            </label>
+            <label>
+              Institucion
+              <input
+                value={profileDraftInstitution}
+                onChange={(e) => setProfileDraftInstitution(e.target.value)}
+                placeholder="Institucion"
+              />
+            </label>
+            <div className="profile-readonly-grid">
+              <div>
+                <span>Codigo anotador</span>
+                <strong>{annotatorCode || 'pendiente'}</strong>
+              </div>
+              <div>
+                <span>Rol</span>
+                <strong>{roleLabel}</strong>
+              </div>
+            </div>
+            {profileSaveError && <div className="form-error">{profileSaveError}</div>}
+            <div className="profile-modal-actions">
+              <button className="secondary" onClick={() => setShowProfileModal(false)} disabled={isProfileSaving}>
+                Cancelar
+              </button>
+              <button className="primary-strong" onClick={() => void handleSaveProfile()} disabled={isProfileSaving}>
+                {isProfileSaving ? 'Guardando...' : 'Guardar perfil'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
       <div className="toast-region" aria-live="polite" aria-atomic="true">
         {status && (
           <div className="toast">
@@ -603,8 +834,8 @@ function App() {
               <button
                 className="ghost"
                 onClick={() => {
-                  setSegments((prev) => prev.filter((s) => s.id !== lastSaved.id))
-                  setStatus('Último segmento deshecho.')
+                  sessionState.replaceSegments((prev) => prev.filter((s) => s.id !== lastSaved.id))
+                  setStatus('Ultimo segmento deshecho.')
                   setLastSaved(null)
                 }}
               >

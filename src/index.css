@@ -1,24 +1,20 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@500;600;700&display=swap');
 
 :root {
-  /* Paleta DIANA */
-  --primary: #6F2DA8;
-  --primary-hover: #7B3CB0;
-  --primary-soft: #A375D1;
-  --accent: #F47A42;
-  --accent-soft: #FFA76B;
+  --primary: #6b36b3;
+  --primary-hover: #5b2d99;
+  --primary-soft: #a88bd8;
+  --accent: #1853a6;
+  --accent-soft: #dce8fb;
 
-  /* Fondos */
-  --bg-main: #E3ECF8;
-  --bg-secondary: #DDE8F5;
+  --bg-main: #f5f7fb;
+  --bg-secondary: #eef3fa;
 
-  /* Neutros */
-  --white: #FFFFFF;
-  --border: #E6E6E6;
-  --text-secondary: #6B6B6B;
-  --text: #2A2A2A;
+  --white: #ffffff;
+  --border: #d7dfeb;
+  --text-secondary: #53627a;
+  --text: #14213d;
 
-  /* Tipografía */
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -37,7 +33,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--bg-main);
+  background: radial-gradient(circle at top left, #ffffff 0, #f5f7fb 38%, #eef3fa 100%);
 }
 
 a {

@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test:phase1.1": "node scripts/phase1_1_validate.mjs",
+    "test:phase2": "node scripts/phase2_validate.mjs",
     "preview": "vite preview",
     "server": "node server/index.cjs"
   },

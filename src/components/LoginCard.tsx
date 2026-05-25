@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
+import type { RegistrationProfileInput } from '../services/userProfiles'
 
 interface Props {
   onLogin: (email: string, password: string) => Promise<unknown>
-  onRegister: (email: string, password: string, username: string) => Promise<unknown>
+  onRegister: (email: string, password: string, profile: RegistrationProfileInput) => Promise<unknown>
   onResetPassword?: (email: string) => Promise<void>
   onClearError?: () => void
   error?: string | null
@@ -12,7 +13,8 @@ export function LoginCard({ onLogin, onRegister, onResetPassword, onClearError, 
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [username, setUsername] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [institution, setInstitution] = useState('')
   const [loading, setLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
@@ -21,13 +23,14 @@ export function LoginCard({ onLogin, onRegister, onResetPassword, onClearError, 
     setMode(newMode)
     setEmail('')
     setPassword('')
-    setUsername('')
+    setFullName('')
+    setInstitution('')
     setLocalError(null)
     setSuccessMsg(null)
     onClearError?.()
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setLocalError(null)
@@ -36,11 +39,18 @@ export function LoginCard({ onLogin, onRegister, onResetPassword, onClearError, 
       if (mode === 'login') {
         await onLogin(email.trim(), password)
       } else {
-        await onRegister(email.trim(), password, username.trim())
-        setSuccessMsg('Usuario creado y sesión iniciada.')
+        if (!fullName.trim() || !institution.trim()) {
+          setLocalError('Completa nombre completo e institucion.')
+          return
+        }
+        await onRegister(email.trim(), password, {
+          fullName: fullName.trim(),
+          institution: institution.trim(),
+        })
+        setSuccessMsg('Cuenta creada. Verifica tu correo y espera la aprobacion del equipo supervisor.')
       }
     } catch {
-      // El error ya viene de useAuth via prop `error`
+      // El error ya viene de useAuth via prop `error`.
     } finally {
       setLoading(false)
     }
@@ -48,7 +58,7 @@ export function LoginCard({ onLogin, onRegister, onResetPassword, onClearError, 
 
   const handleForgotPassword = async () => {
     if (!email.trim()) {
-      setLocalError('Ingresa tu correo electrónico primero.')
+      setLocalError('Ingresa tu correo electronico primero.')
       return
     }
     if (!onResetPassword) return
@@ -57,9 +67,9 @@ export function LoginCard({ onLogin, onRegister, onResetPassword, onClearError, 
     setSuccessMsg(null)
     try {
       await onResetPassword(email.trim())
-      setSuccessMsg('Se envió un correo para restablecer tu contraseña.')
+      setSuccessMsg('Se envio un correo para restablecer tu contrasena.')
     } catch {
-      // El error ya viene de useAuth via prop `error`
+      // El error ya viene de useAuth via prop `error`.
     } finally {
       setLoading(false)
     }
@@ -73,43 +83,48 @@ export function LoginCard({ onLogin, onRegister, onResetPassword, onClearError, 
         <img src="/logo.png" alt="DIANA" className="login-logo" />
       </div>
       <p className="login-subtitle">
-        Plataforma de anotación para evaluación del desarrollo motor grueso en niños
+        Plataforma institucional para anotacion TGMD-3. El acceso requiere verificacion y aprobacion.
       </p>
       <div className="login-toggle">
         <button className={mode === 'login' ? 'active' : ''} onClick={() => switchMode('login')} type="button">
-          Iniciar sesión
+          Iniciar sesion
         </button>
         <button className={mode === 'register' ? 'active' : ''} onClick={() => switchMode('register')} type="button">
-          Crear usuario
+          Solicitar acceso
         </button>
       </div>
       <form onSubmit={handleSubmit} className="login-form">
         <label>
-          Correo electrónico
+          Correo electronico
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
         {mode === 'register' && (
-          <label>
-            Nombre de usuario
-            <input value={username} onChange={(e) => setUsername(e.target.value)} required />
-          </label>
+          <>
+            <label>
+              Nombre completo
+              <input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+            </label>
+            <label>
+              Institucion
+              <input value={institution} onChange={(e) => setInstitution(e.target.value)} required />
+            </label>
+          </>
         )}
         <label>
-          Contraseña
+          Contrasena
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         </label>
         {mode === 'login' && onResetPassword && (
           <button type="button" className="link-btn" onClick={handleForgotPassword} disabled={loading}>
-            ¿Olvidaste tu contraseña?
+            Olvidaste tu contrasena?
           </button>
         )}
         {displayError && <div className="form-error">{displayError}</div>}
         {successMsg && <div className="form-status">{successMsg}</div>}
         <button type="submit" disabled={loading}>
-          {loading ? 'Procesando...' : mode === 'login' ? 'Entrar' : 'Registrar e ingresar'}
+          {loading ? 'Procesando...' : mode === 'login' ? 'Entrar' : 'Crear solicitud'}
         </button>
       </form>
     </div>
   )
 }
-

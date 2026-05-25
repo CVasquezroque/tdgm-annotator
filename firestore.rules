@@ -1,0 +1,262 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userProfile(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function myProfile() {
+      return userProfile(request.auth.uid);
+    }
+
+    function isAdmin() {
+      return signedIn() && (request.auth.token.admin == true || myProfile().role == "admin");
+    }
+
+    function isSupervisor() {
+      return signedIn()
+        && (
+          request.auth.token.supervisor == true
+          || request.auth.token.admin == true
+          || myProfile().role in ["supervisor", "admin"]
+        );
+    }
+
+    function isReviewer() {
+      return isActiveApprovedUser() && myProfile().role in ["reviewer", "supervisor", "admin"];
+    }
+
+    function isActiveApprovedUser() {
+      return signedIn()
+        && myProfile().status == "active"
+        && myProfile().email_verified == true
+        && myProfile().training_completed == true
+        && myProfile().confidentiality_agreement == true;
+    }
+
+    function isSafeVideoCode(value) {
+      return value is string
+        && value.size() >= 3
+        && value.size() <= 40
+        && value.matches("^[A-Z0-9]+(-[A-Z0-9]+)*$");
+    }
+
+    match /users/{uid} {
+      function validSelfProfileCreate() {
+        return request.resource.data.keys().hasOnly([
+            "uid",
+            "full_name",
+            "email",
+            "institution",
+            "role",
+            "annotator_code",
+            "status",
+            "email_verified",
+            "training_completed",
+            "confidentiality_agreement",
+            "created_at",
+            "updated_at",
+            "last_login"
+          ])
+          && request.resource.data.uid == uid
+          && request.resource.data.role == "annotator"
+          && request.resource.data.status == "pending"
+          && request.resource.data.annotator_code == ""
+          && request.resource.data.training_completed == false
+          && request.resource.data.confidentiality_agreement == false
+          && request.resource.data.email_verified == request.auth.token.email_verified;
+      }
+
+      allow create: if signedIn() && request.auth.uid == uid && validSelfProfileCreate();
+      allow read: if signedIn() && (request.auth.uid == uid || isSupervisor());
+
+      allow update: if (
+        signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(["email", "email_verified", "full_name", "institution", "last_login", "updated_at"])
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(["email_verified"])
+          || request.resource.data.email_verified == false
+          || (request.resource.data.email_verified == true && request.auth.token.email_verified == true)
+        )
+      );
+
+      allow update: if isSupervisor();
+      allow delete: if isAdmin();
+    }
+
+    match /video_registry/{videoCode} {
+      function validVideoRegistryKeys() {
+        return request.resource.data.keys().hasOnly([
+          "video_code",
+          "source_type",
+          "duration_sec",
+          "created_by_uid",
+          "created_at",
+          "notes"
+        ]);
+      }
+
+      allow read: if isActiveApprovedUser();
+      allow create: if isActiveApprovedUser()
+        && validVideoRegistryKeys()
+        && isSafeVideoCode(videoCode)
+        && request.resource.data.video_code == videoCode
+        && request.resource.data.created_by_uid == request.auth.uid;
+      allow update: if isSupervisor()
+        && validVideoRegistryKeys()
+        && isSafeVideoCode(videoCode)
+        && request.resource.data.video_code == videoCode;
+      allow delete: if isAdmin();
+    }
+
+    match /annotation_sessions/{sessionId} {
+      function validSessionKeys() {
+        return request.resource.data.keys().hasOnly([
+          "session_id",
+          "video_code",
+          "annotator_uid",
+          "annotator_code",
+          "reviewer_uid",
+          "status",
+          "created_at",
+          "updated_at",
+          "submitted_at",
+          "reviewed_at",
+          "locked_at",
+          "app_version",
+          "segment_count",
+          "local_video_notice_ack"
+        ]);
+      }
+
+      function isOwner() {
+        return resource.data.annotator_uid == request.auth.uid;
+      }
+
+      function isRequestedOwner() {
+        return request.resource.data.annotator_uid == request.auth.uid;
+      }
+
+      function ownerEditableStatus() {
+        return resource.data.status in ["draft", "returned"];
+      }
+
+      function ownerPreservesIdentity() {
+        return request.resource.data.session_id == resource.data.session_id
+          && request.resource.data.video_code == resource.data.video_code
+          && request.resource.data.annotator_uid == resource.data.annotator_uid
+          && request.resource.data.annotator_code == resource.data.annotator_code;
+      }
+
+      function validOwnerStatusTransition() {
+        return (
+          resource.data.status == "draft"
+          && request.resource.data.status in ["draft", "submitted"]
+        ) || (
+          resource.data.status == "returned"
+          && request.resource.data.status in ["returned", "submitted"]
+        );
+      }
+
+      allow read: if isActiveApprovedUser()
+        && (resource.data.annotator_uid == request.auth.uid || isReviewer() || isSupervisor());
+
+      allow create: if isActiveApprovedUser()
+        && validSessionKeys()
+        && request.resource.data.session_id == sessionId
+        && isSafeVideoCode(request.resource.data.video_code)
+        && isRequestedOwner()
+        && request.resource.data.status == "draft";
+
+      allow update: if isActiveApprovedUser()
+        && isOwner()
+        && ownerEditableStatus()
+        && validSessionKeys()
+        && isSafeVideoCode(request.resource.data.video_code)
+        && ownerPreservesIdentity()
+        && validOwnerStatusTransition();
+
+      allow update: if isReviewer()
+        && validSessionKeys()
+        && isSafeVideoCode(request.resource.data.video_code)
+        && request.resource.data.session_id == resource.data.session_id
+        && request.resource.data.video_code == resource.data.video_code
+        && request.resource.data.annotator_uid == resource.data.annotator_uid
+        && request.resource.data.annotator_code == resource.data.annotator_code
+        && request.resource.data.status in ["reviewed", "returned", "locked"];
+
+      allow update: if isSupervisor() && validSessionKeys() && isSafeVideoCode(request.resource.data.video_code);
+      allow delete: if isAdmin();
+
+      match /segments/{segmentId} {
+        function parentSession() {
+          return get(/databases/$(database)/documents/annotation_sessions/$(sessionId)).data;
+        }
+
+        function validSegmentKeys() {
+          return request.resource.data.keys().hasOnly([
+            "segment_id",
+            "session_id",
+            "video_code",
+            "action",
+            "start_sec",
+            "end_sec",
+            "repetition_id",
+            "notes",
+            "created_at",
+            "updated_at"
+          ]);
+        }
+
+        function parentEditableByOwner() {
+          return isActiveApprovedUser()
+            && parentSession().annotator_uid == request.auth.uid
+            && parentSession().status in ["draft", "returned"];
+        }
+
+        allow read: if isActiveApprovedUser()
+          && (parentSession().annotator_uid == request.auth.uid || isReviewer() || isSupervisor());
+
+        allow create, update: if parentEditableByOwner()
+          && validSegmentKeys()
+          && request.resource.data.segment_id == segmentId
+          && request.resource.data.session_id == sessionId
+          && isSafeVideoCode(request.resource.data.video_code)
+          && request.resource.data.video_code == parentSession().video_code;
+
+        allow delete: if parentEditableByOwner();
+      }
+
+      match /review_events/{eventId} {
+        function validReviewEventKeys() {
+          return request.resource.data.keys().hasOnly([
+            "event_id",
+            "session_id",
+            "actor_uid",
+            "actor_role",
+            "event_type",
+            "created_at",
+            "comment"
+          ]);
+        }
+
+        allow read: if isReviewer() || isSupervisor();
+        allow create: if (isReviewer() || isSupervisor())
+          && validReviewEventKeys()
+          && request.resource.data.event_id == eventId
+          && request.resource.data.session_id == sessionId
+          && request.resource.data.actor_uid == request.auth.uid
+          && request.resource.data.actor_role in ["reviewer", "supervisor", "admin"]
+          && request.resource.data.event_type in ["reviewed", "returned", "locked", "unlocked"];
+        allow update, delete: if false;
+      }
+    }
+  }
+}
