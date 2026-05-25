@@ -66,6 +66,7 @@ export type VideoSourceType = 'local'
 export interface VideoMeta {
   source: VideoSourceType
   duration: number
+  codedFilename: string
 }
 
 export type AnnotationSessionStatus = 'draft' | 'submitted' | 'reviewed' | 'returned' | 'locked'
@@ -76,6 +77,7 @@ export type AutosaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'failed'
 
 export interface VideoRegistryEntry {
   video_code: string
+  video_filename: string
   source_type: 'local' | 'local_synced_folder' | 'unknown'
   duration_sec: number | null
   created_by_uid: string
@@ -86,6 +88,7 @@ export interface VideoRegistryEntry {
 export interface AnnotationSession {
   session_id: string
   video_code: string
+  video_filename: string
   annotator_uid: string
   annotator_code: string
   reviewer_uid: string | null
@@ -104,6 +107,9 @@ export interface AnnotationSegment {
   segment_id: string
   session_id: string
   video_code: string
+  video_filename: string
+  annotator_uid: string
+  annotator_code: string
   action: ActionId
   start_sec: number
   end_sec: number
@@ -126,6 +132,7 @@ export interface ReviewEvent {
 export interface AnnotationSessionExportMeta {
   sessionId: string
   videoCode: string
+  videoFilename: string
   annotatorUid: string
   annotatorCode: string
   status?: AnnotationSessionStatus

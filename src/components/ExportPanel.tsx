@@ -14,6 +14,7 @@ function metaFor(session: AnnotationSession) {
   return {
     sessionId: session.session_id,
     videoCode: session.video_code,
+    videoFilename: session.video_filename,
     annotatorUid: session.annotator_uid,
     annotatorCode: session.annotator_code,
     status: session.status,
@@ -44,7 +45,7 @@ export function ExportPanel({ videoMeta, session, segments, canExportAll }: Prop
       const bundle = await loadSessionBundle(item.session_id)
       if (!bundle) continue
       const csv = buildAnnotationsCsv({
-        videoMeta: { source: 'local', duration: 0 },
+        videoMeta: { source: 'local', duration: 0, codedFilename: bundle.session.video_filename },
         session: metaFor(bundle.session),
         segments: bundle.segments,
       })
@@ -52,7 +53,7 @@ export function ExportPanel({ videoMeta, session, segments, canExportAll }: Prop
       rows.push(...body.filter(Boolean))
     }
     const header =
-      'project,schema_version,session_id,video_code,action,start_sec,end_sec,repetition_id,annotator_code,status,created_at,updated_at,submitted_at,reviewed_at,locked_at,notes,app_version'
+      'project,schema_version,session_id,video_code,video_filename,action,start_sec,end_sec,repetition_id,annotator_code,status,created_at,updated_at,submitted_at,reviewed_at,locked_at,notes,app_version'
     exportTextFile([header, ...rows].join('\n'), `DIANA_${status ?? 'all'}_sessions.csv`)
   }
 

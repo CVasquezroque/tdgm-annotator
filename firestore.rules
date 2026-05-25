@@ -41,9 +41,9 @@ service cloud.firestore {
 
     function isSafeVideoCode(value) {
       return value is string
-        && value.size() >= 3
-        && value.size() <= 40
-        && value.matches("^[A-Z0-9]+(-[A-Z0-9]+)*$");
+        && value.size() >= 1
+        && value.size() <= 160
+        && value.matches("^[A-Za-z0-9._ -]+$");
     }
 
     match /users/{uid} {
@@ -95,6 +95,7 @@ service cloud.firestore {
       function validVideoRegistryKeys() {
         return request.resource.data.keys().hasOnly([
           "video_code",
+          "video_filename",
           "source_type",
           "duration_sec",
           "created_by_uid",
@@ -107,11 +108,14 @@ service cloud.firestore {
       allow create: if isActiveApprovedUser()
         && validVideoRegistryKeys()
         && isSafeVideoCode(videoCode)
+        && isSafeVideoCode(request.resource.data.video_filename)
         && request.resource.data.video_code == videoCode
+        && request.resource.data.video_filename == videoCode
         && request.resource.data.created_by_uid == request.auth.uid;
       allow update: if isSupervisor()
         && validVideoRegistryKeys()
         && isSafeVideoCode(videoCode)
+        && isSafeVideoCode(request.resource.data.video_filename)
         && request.resource.data.video_code == videoCode;
       allow delete: if isAdmin();
     }
@@ -121,6 +125,7 @@ service cloud.firestore {
         return request.resource.data.keys().hasOnly([
           "session_id",
           "video_code",
+          "video_filename",
           "annotator_uid",
           "annotator_code",
           "reviewer_uid",
@@ -151,6 +156,7 @@ service cloud.firestore {
       function ownerPreservesIdentity() {
         return request.resource.data.session_id == resource.data.session_id
           && request.resource.data.video_code == resource.data.video_code
+          && request.resource.data.video_filename == resource.data.video_filename
           && request.resource.data.annotator_uid == resource.data.annotator_uid
           && request.resource.data.annotator_code == resource.data.annotator_code;
       }
@@ -165,13 +171,23 @@ service cloud.firestore {
         );
       }
 
-      allow read: if isActiveApprovedUser()
+      allow get: if isActiveApprovedUser()
+        && (
+          !exists(/databases/$(database)/documents/annotation_sessions/$(sessionId))
+          || resource.data.annotator_uid == request.auth.uid
+          || isReviewer()
+          || isSupervisor()
+        );
+
+      allow list: if isActiveApprovedUser()
         && (resource.data.annotator_uid == request.auth.uid || isReviewer() || isSupervisor());
 
       allow create: if isActiveApprovedUser()
         && validSessionKeys()
         && request.resource.data.session_id == sessionId
         && isSafeVideoCode(request.resource.data.video_code)
+        && isSafeVideoCode(request.resource.data.video_filename)
+        && request.resource.data.video_filename == request.resource.data.video_code
         && isRequestedOwner()
         && request.resource.data.status == "draft";
 
@@ -180,19 +196,25 @@ service cloud.firestore {
         && ownerEditableStatus()
         && validSessionKeys()
         && isSafeVideoCode(request.resource.data.video_code)
+        && isSafeVideoCode(request.resource.data.video_filename)
         && ownerPreservesIdentity()
         && validOwnerStatusTransition();
 
       allow update: if isReviewer()
         && validSessionKeys()
         && isSafeVideoCode(request.resource.data.video_code)
+        && isSafeVideoCode(request.resource.data.video_filename)
         && request.resource.data.session_id == resource.data.session_id
         && request.resource.data.video_code == resource.data.video_code
+        && request.resource.data.video_filename == resource.data.video_filename
         && request.resource.data.annotator_uid == resource.data.annotator_uid
         && request.resource.data.annotator_code == resource.data.annotator_code
         && request.resource.data.status in ["reviewed", "returned", "locked"];
 
-      allow update: if isSupervisor() && validSessionKeys() && isSafeVideoCode(request.resource.data.video_code);
+      allow update: if isSupervisor()
+        && validSessionKeys()
+        && isSafeVideoCode(request.resource.data.video_code)
+        && isSafeVideoCode(request.resource.data.video_filename);
       allow delete: if isAdmin();
 
       match /segments/{segmentId} {
@@ -205,6 +227,9 @@ service cloud.firestore {
             "segment_id",
             "session_id",
             "video_code",
+            "video_filename",
+            "annotator_uid",
+            "annotator_code",
             "action",
             "start_sec",
             "end_sec",
@@ -229,7 +254,11 @@ service cloud.firestore {
           && request.resource.data.segment_id == segmentId
           && request.resource.data.session_id == sessionId
           && isSafeVideoCode(request.resource.data.video_code)
-          && request.resource.data.video_code == parentSession().video_code;
+          && isSafeVideoCode(request.resource.data.video_filename)
+          && request.resource.data.video_code == parentSession().video_code
+          && request.resource.data.video_filename == parentSession().video_filename
+          && request.resource.data.annotator_uid == parentSession().annotator_uid
+          && request.resource.data.annotator_code == parentSession().annotator_code;
 
         allow delete: if parentEditableByOwner();
       }
@@ -257,6 +286,58 @@ service cloud.firestore {
           && request.resource.data.event_type in ["reviewed", "returned", "locked", "unlocked"];
         allow update, delete: if false;
       }
+    }
+
+    match /annotation_segments/{segmentDocId} {
+      function parentSession() {
+        return get(/databases/$(database)/documents/annotation_sessions/$(request.resource.data.session_id)).data;
+      }
+
+      function existingParentSession() {
+        return get(/databases/$(database)/documents/annotation_sessions/$(resource.data.session_id)).data;
+      }
+
+      function validUnifiedSegmentKeys() {
+        return request.resource.data.keys().hasOnly([
+          "unified_segment_id",
+          "segment_id",
+          "session_id",
+          "video_code",
+          "video_filename",
+          "annotator_uid",
+          "annotator_code",
+          "action",
+          "start_sec",
+          "end_sec",
+          "repetition_id",
+          "notes",
+          "created_at",
+          "updated_at"
+        ]);
+      }
+
+      function validUnifiedSegmentIdentity() {
+        return request.resource.data.unified_segment_id == segmentDocId
+          && isSafeVideoCode(request.resource.data.video_code)
+          && isSafeVideoCode(request.resource.data.video_filename)
+          && request.resource.data.video_code == parentSession().video_code
+          && request.resource.data.video_filename == parentSession().video_filename
+          && request.resource.data.annotator_uid == request.auth.uid
+          && request.resource.data.annotator_uid == parentSession().annotator_uid
+          && request.resource.data.annotator_code == parentSession().annotator_code
+          && parentSession().status in ["draft", "returned"];
+      }
+
+      allow read: if isActiveApprovedUser()
+        && (resource.data.annotator_uid == request.auth.uid || isReviewer() || isSupervisor());
+
+      allow create, update: if isActiveApprovedUser()
+        && validUnifiedSegmentKeys()
+        && validUnifiedSegmentIdentity();
+
+      allow delete: if isActiveApprovedUser()
+        && existingParentSession().annotator_uid == request.auth.uid
+        && existingParentSession().status in ["draft", "returned"];
     }
   }
 }

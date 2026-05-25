@@ -38,7 +38,7 @@ export function ReviewerSessionsPanel({ profile, onOpenSession }: Props) {
     const normalized = filter.trim().toLowerCase()
     if (!normalized) return sessions
     return sessions.filter((session) =>
-      [session.video_code, session.annotator_code, session.status].some((value) =>
+      [session.annotator_code, session.status].some((value) =>
         String(value).toLowerCase().includes(normalized),
       ),
     )
@@ -68,14 +68,14 @@ export function ReviewerSessionsPanel({ profile, onOpenSession }: Props) {
           Actualizar
         </button>
       </div>
-      <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filtrar por video, anotador o estado" />
+      <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filtrar por anotador o estado" />
       <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder="Comentario de revision" />
       <div className="session-list">
         {visible.map((session) => (
           <div className="session-review-row" key={session.session_id}>
             <button className="session-row" onClick={() => void openSession(session.session_id)}>
               <span>
-                <strong>{session.video_code}</strong>
+                <strong>Anotacion local</strong>
                 <small>
                   {session.annotator_code} - {timestampToIso(session.updated_at) ?? 'sin fecha'}
                 </small>

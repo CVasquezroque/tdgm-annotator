@@ -26,6 +26,7 @@ const exportFixture = {
   project: 'DIANA',
   video: {
     video_code: 'DIANA-VID-001',
+    video_filename: 'DIANA-VID-001.mp4',
     duration_sec: 32.4,
     source: 'local',
   },
@@ -51,14 +52,14 @@ const exportFixture = {
 
 const jsonExport = JSON.stringify(exportFixture)
 const csvExport = [
-  'project,schema_version,session_id,video_code,action,start_sec,end_sec,repetition_id,annotator_code,notes,app_version',
-  'DIANA,1.0,session_test,DIANA-VID-001,run,3.25,6.8,1,ANN001,,0.0.0',
+  'project,schema_version,session_id,video_code,video_filename,action,start_sec,end_sec,repetition_id,annotator_code,notes,app_version',
+  'DIANA,1.0,session_test,DIANA-VID-001,DIANA-VID-001.mp4,run,3.25,6.8,1,ANN001,,0.0.0',
 ].join('\n')
 
 for (const output of [jsonExport, csvExport]) {
   assertNotIncludes(
     output,
-    ['Juan', 'Perez', 'Colegio', 'San Marcos', sensitiveFilename, '.mp4', 'file_path', 'C:\\', '/Users/'],
+    ['Juan', 'Perez', 'Colegio', 'San Marcos', sensitiveFilename, 'file_path', 'C:\\', '/Users/'],
     'export output',
   )
 }

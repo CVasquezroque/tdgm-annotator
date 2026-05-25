@@ -44,7 +44,7 @@ export function MySessionsPanel({ uid, onOpenSession }: Props) {
         {sessions.map((session) => (
           <button className="session-row" key={session.session_id} onClick={() => void openSession(session.session_id)}>
             <span>
-              <strong>{session.video_code}</strong>
+              <strong>Anotacion local</strong>
               <small>{timestampToIso(session.updated_at) ?? 'sin fecha'}</small>
             </span>
             <SessionStatusBadge status={session.status} />

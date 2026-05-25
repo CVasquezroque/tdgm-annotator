@@ -12,6 +12,7 @@ import { APP_VERSION } from '../constants/app'
 interface LocalDraftBackup {
   session_id: string
   video_code: string
+  video_filename: string
   annotator_uid: string
   annotator_code: string
   segments: Segment[]
@@ -42,6 +43,7 @@ function writeBackup(session: AnnotationSession, segments: Segment[]) {
     const backup: LocalDraftBackup = {
       session_id: session.session_id,
       video_code: session.video_code,
+      video_filename: session.video_filename,
       annotator_uid: session.annotator_uid,
       annotator_code: session.annotator_code,
       segments,
@@ -60,7 +62,12 @@ function clearBackup(session: AnnotationSession | null) {
   localStorage.removeItem(backupKey(session.annotator_uid, session.video_code))
 }
 
-export function useAnnotationSession(profile: UserProfile | null, videoCode: string, durationSec: number | null) {
+export function useAnnotationSession(
+  profile: UserProfile | null,
+  videoCode: string,
+  videoFilename: string,
+  durationSec: number | null,
+) {
   const [session, setSession] = useState<AnnotationSession | null>(null)
   const [segments, setSegments] = useState<Segment[]>([])
   const [loading, setLoading] = useState(false)
@@ -72,8 +79,18 @@ export function useAnnotationSession(profile: UserProfile | null, videoCode: str
   const initialLoadRef = useRef(true)
   const sessionRef = useRef<AnnotationSession | null>(null)
   const segmentsRef = useRef<Segment[]>([])
+  const durationSecRef = useRef<number | null>(durationSec)
+  const videoFilenameRef = useRef(videoFilename)
 
   const editable = canEditSession(session, profile?.uid)
+
+  useEffect(() => {
+    durationSecRef.current = durationSec
+  }, [durationSec])
+
+  useEffect(() => {
+    videoFilenameRef.current = videoFilename
+  }, [videoFilename])
 
   useEffect(() => {
     sessionRef.current = session
@@ -106,9 +123,10 @@ export function useAnnotationSession(profile: UserProfile | null, videoCode: str
       try {
         const bundle = await getOrCreateAnnotationSession({
           videoCode,
+          videoFilename: videoFilenameRef.current || videoCode,
           annotatorUid: profile.uid,
           annotatorCode: profile.annotator_code || profile.uid.slice(0, 8).toUpperCase(),
-          durationSec,
+          durationSec: durationSecRef.current,
         })
         if (cancelled) return
         setSession(bundle.session)
@@ -134,7 +152,7 @@ export function useAnnotationSession(profile: UserProfile | null, videoCode: str
     return () => {
       cancelled = true
     }
-  }, [durationSec, profile, videoCode])
+  }, [profile, videoCode])
 
   useEffect(() => {
     const currentSession = sessionRef.current

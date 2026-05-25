@@ -30,9 +30,11 @@ import type {
 
 const SESSIONS = 'annotation_sessions'
 const VIDEO_REGISTRY = 'video_registry'
+const UNIFIED_SEGMENTS = 'annotation_segments'
 
 export interface SessionInitInput {
   videoCode: string
+  videoFilename: string
   annotatorUid: string
   annotatorCode: string
   durationSec: number | null
@@ -59,6 +61,14 @@ function segmentsRef(sessionId: string) {
   return collection(db, SESSIONS, sessionId, 'segments')
 }
 
+function unifiedSegmentId(sessionId: string, segmentId: string) {
+  return `${cleanId(sessionId)}_${cleanId(segmentId)}`
+}
+
+function unifiedSegmentRef(sessionId: string, segmentId: string) {
+  return doc(db, UNIFIED_SEGMENTS, unifiedSegmentId(sessionId, segmentId))
+}
+
 function reviewEventsRef(sessionId: string) {
   return collection(db, SESSIONS, sessionId, 'review_events')
 }
@@ -79,6 +89,7 @@ function mapSessionSnap(snap: QueryDocumentSnapshot<DocumentData> | { id: string
   return {
     session_id: data.session_id ?? snap.id,
     video_code: data.video_code,
+    video_filename: data.video_filename ?? data.video_code,
     annotator_uid: data.annotator_uid,
     annotator_code: data.annotator_code,
     reviewer_uid: data.reviewer_uid ?? null,
@@ -99,6 +110,9 @@ function segmentToFirestore(session: AnnotationSession, segment: Segment): Annot
     segment_id: segment.id,
     session_id: session.session_id,
     video_code: session.video_code,
+    video_filename: session.video_filename,
+    annotator_uid: session.annotator_uid,
+    annotator_code: session.annotator_code,
     action: segment.action,
     start_sec: segment.startSec,
     end_sec: segment.endSec,
@@ -134,6 +148,7 @@ export async function getOrCreateAnnotationSession(input: SessionInitInput): Pro
   if (!existingVideo.exists()) {
     await setDoc(videoRef, {
       video_code: input.videoCode,
+      video_filename: input.videoFilename,
       source_type: 'local',
       duration_sec: input.durationSec,
       created_by_uid: input.annotatorUid,
@@ -146,6 +161,7 @@ export async function getOrCreateAnnotationSession(input: SessionInitInput): Pro
     const session: AnnotationSession = {
       session_id: sessionId,
       video_code: input.videoCode,
+      video_filename: input.videoFilename,
       annotator_uid: input.annotatorUid,
       annotator_code: input.annotatorCode,
       reviewer_uid: null,
@@ -185,6 +201,7 @@ export async function saveSessionSegments(session: AnnotationSession, segments: 
   current.docs.forEach((snap) => {
     if (!nextIds.has(snap.id)) {
       batch.delete(snap.ref)
+      batch.delete(unifiedSegmentRef(session.session_id, snap.id))
     }
   })
 
@@ -194,6 +211,16 @@ export async function saveSessionSegments(session: AnnotationSession, segments: 
     batch.set(
       ref,
       {
+        ...payload,
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
+      },
+      { merge: true },
+    )
+    batch.set(
+      unifiedSegmentRef(session.session_id, segment.id),
+      {
+        unified_segment_id: unifiedSegmentId(session.session_id, segment.id),
         ...payload,
         created_at: serverTimestamp(),
         updated_at: serverTimestamp(),
@@ -290,4 +317,5 @@ export async function loadSessionBundle(sessionId: string): Promise<SessionBundl
 
 export async function deleteSessionSegment(sessionId: string, segmentId: string) {
   await deleteDoc(doc(db, SESSIONS, sessionId, 'segments', segmentId))
+  await deleteDoc(unifiedSegmentRef(sessionId, segmentId))
 }

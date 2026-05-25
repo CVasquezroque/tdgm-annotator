@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { VideoLoader } from './components/VideoLoader'
 import { VideoPlayer } from './components/VideoPlayer'
@@ -12,7 +12,6 @@ import { ShortcutsHelp } from './components/ShortcutsHelp'
 import { LoginCard } from './components/LoginCard'
 import { ApprovalStatusCard } from './components/ApprovalStatusCard'
 import { PosePreviewOverlay } from './components/PosePreviewOverlay'
-import { VideoCodeForm } from './components/VideoCodeForm'
 import { AutosaveStatus } from './components/AutosaveStatus'
 import { MySessionsPanel } from './components/MySessionsPanel'
 import { ReviewerSessionsPanel } from './components/ReviewerSessionsPanel'
@@ -27,13 +26,27 @@ import { formatTime } from './utils/time'
 import { useAuth } from './hooks/useAuth'
 import { updateOwnSafeProfile } from './services/userProfiles'
 
+function codedFilenameFromFile(file: File) {
+  const baseName = file.name.split(/[\\/]/).pop()?.trim() || `LOCAL-${Date.now().toString(36).toUpperCase()}`
+  const cleaned = baseName
+    .split('')
+    .filter((char) => char >= ' ' && char !== '\u007f')
+    .join('')
+    .replace(/[\\/]/g, '_')
+    .replace(/[^A-Za-z0-9._ -]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+
+  return cleaned || `LOCAL-${Date.now().toString(36).toUpperCase()}`
+}
+
 function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const videoObjectUrlRef = useRef<string | null>(null)
   const [videoSrc, setVideoSrc] = useState<string | null>(null)
   const [videoMeta, setVideoMeta] = useState<VideoMeta | null>(null)
   const [videoCode, setVideoCode] = useState('')
-  const [isVideoCodeInputValid, setIsVideoCodeInputValid] = useState(false)
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -74,16 +87,13 @@ function App() {
   const { previewUrl, previewTime, requestPreview } = useThumbnailGenerator(videoSrc)
 
   const annotatorCode = profile?.annotator_code.trim() || user?.uid.slice(0, 8).toUpperCase() || ''
-  const sessionState = useAnnotationSession(profile, videoCode, duration || null)
+  const sessionState = useAnnotationSession(profile, videoCode, videoMeta?.codedFilename || '', duration || null)
   const { session, segments, editable, autosaveStatus } = sessionState
   const sessionMatchesCode = Boolean(session && videoCode && session.video_code === videoCode)
 
-  const canAnnotateVideo = Boolean(
-    videoSrc && isVideoCodeInputValid && videoCode.trim() && sessionMatchesCode && !sessionState.loading && editable,
-  )
+  const canAnnotateVideo = Boolean(videoSrc && videoCode.trim() && sessionMatchesCode && !sessionState.loading && editable)
   const canSubmitSession = Boolean(
     videoSrc &&
-      isVideoCodeInputValid &&
       videoCode.trim() &&
       sessionMatchesCode &&
       !sessionState.loading &&
@@ -101,28 +111,22 @@ function App() {
           ? 'Reviewer'
           : 'Annotator'
   const displayName = profile?.full_name?.trim() || user?.username || ''
+  const shortName = useMemo(() => {
+    const source = displayName.trim() || user?.email?.split('@')[0] || 'usuario'
+    return source.split(/\s+/)[0]
+  }, [displayName, user?.email])
+  const initials = useMemo(() => {
+    const source = displayName.trim() || user?.email?.split('@')[0] || 'U'
+    const parts = source.split(/\s+/).filter(Boolean)
+    return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : source.slice(0, 2)).toUpperCase()
+  }, [displayName, user?.email])
   const annotationReadiness = (() => {
     if (!videoMeta) return 'Carga un video local para iniciar.'
-    if (!isVideoCodeInputValid || !videoCode.trim()) return 'Ingresa un codigo de video para iniciar la anotacion.'
-    if (sessionState.loading) return 'Preparando sesion de anotacion...'
-    if (sessionState.error) return 'No se pudo preparar la sesion. Revisa tu conexion o permisos.'
-    if (sessionMatchesCode) return 'Sesion lista'
-    return 'Preparando sesion de anotacion...'
+    if (sessionState.loading) return 'Preparando anotacion...'
+    if (sessionState.error) return 'No se pudo preparar la anotacion. Revisa tu conexion o permisos.'
+    if (sessionMatchesCode) return 'Anotacion lista'
+    return 'Preparando anotacion...'
   })()
-
-  const handleValidVideoCode = useCallback((code: string) => {
-    setIsVideoCodeInputValid(true)
-    setVideoCode((previous) => {
-      if (previous !== code) {
-        setStatus('Preparando sesion de anotacion...')
-      }
-      return code
-    })
-  }, [])
-
-  const handlePendingVideoCode = useCallback(() => {
-    setIsVideoCodeInputValid(false)
-  }, [])
 
   const openProfileEditor = () => {
     setProfileDraftName(profile?.full_name ?? '')
@@ -175,16 +179,17 @@ function App() {
     const src = URL.createObjectURL(file)
     videoObjectUrlRef.current = src
     setVideoSrc(src)
+    const codedFilename = codedFilenameFromFile(file)
     setVideoMeta({
       source: 'local',
       duration: 0,
+      codedFilename,
     })
-    setVideoCode('')
-    setIsVideoCodeInputValid(false)
+    setVideoCode(codedFilename)
     setIsVideoLoading(true)
     setDuration(0)
     resetAnnotationState()
-    setStatus('Video local cargado. Ingresa un codigo pseudonimizado para iniciar.')
+    setStatus('Video local cargado. Preparando anotacion...')
     setIsPlaying(false)
     setCurrentTime(0)
     setShowFormModal(false)
@@ -217,7 +222,7 @@ function App() {
 
   const markStart = () => {
     if (!canAnnotateVideo) {
-      setMarkError('Ingresa un codigo de video valido y espera a que la anotacion este lista.')
+      setMarkError('Espera a que la anotacion este lista.')
       return
     }
     if (!selectedAction) {
@@ -233,7 +238,7 @@ function App() {
 
   const markEnd = () => {
     if (!canAnnotateVideo) {
-      setMarkError('Ingresa un codigo de video valido y espera a que la anotacion este lista.')
+      setMarkError('Espera a que la anotacion este lista.')
       return
     }
     if (!selectedAction) {
@@ -327,7 +332,6 @@ function App() {
 
   const handleOpenStoredSession = (nextSession: AnnotationSession, nextSegments: Segment[]) => {
     setVideoCode(nextSession.video_code)
-    setIsVideoCodeInputValid(true)
     sessionState.refreshFromSession(nextSession, nextSegments)
     setStatus('Anotacion cargada. Carga el video local correspondiente para reproducirlo.')
   }
@@ -449,20 +453,38 @@ function App() {
           </div>
         </div>
         <div className="header-actions">
-          <div className="account-pill" aria-label="Usuario actual">
-            <span>{displayName}</span>
-            <strong>{annotatorCode || 'sin codigo'}</strong>
-            <em>{roleLabel}</em>
-          </div>
-          <button className="secondary" onClick={openProfileEditor}>
-            Editar perfil
-          </button>
-          <button className="secondary" onClick={() => void logout()}>
-            Cerrar sesion
-          </button>
-          <VideoLoader onVideoSelected={handleVideoSelected} />
+          <details className="user-menu">
+            <summary aria-label="Menu de usuario">
+              <span className="user-avatar">{initials}</span>
+              <span className="user-menu-name">{shortName}</span>
+              <span className="user-menu-chevron">⌄</span>
+            </summary>
+            <div className="user-menu-panel">
+              <strong>{displayName}</strong>
+              <span>{annotatorCode || 'sin codigo'} · {roleLabel}</span>
+              <button className="ghost" onClick={openProfileEditor}>
+                Editar perfil
+              </button>
+              <button className="ghost" onClick={() => void logout()}>
+                Cerrar sesion
+              </button>
+            </div>
+          </details>
         </div>
       </header>
+
+      <section className="workspace-toolbar" aria-label="Controles principales">
+        <div className="user-strip">
+          <span className="user-strip-icon" aria-hidden="true" />
+          <strong>{shortName}</strong>
+          <span>{annotatorCode || 'sin codigo'}</span>
+          <em>{roleLabel}</em>
+        </div>
+        <VideoLoader onVideoSelected={handleVideoSelected} />
+        <div className="privacy-inline">
+          El video permanece en este dispositivo. No se sube a ningun servidor.
+        </div>
+      </section>
 
       <ShortcutsHelp />
 
@@ -475,7 +497,7 @@ function App() {
                 <strong>Archivo local:</strong> cargado en este dispositivo
               </div>
               <div>
-                <strong>Codigo:</strong> {videoCode || 'pendiente'}
+                <strong>Archivo codificado:</strong> {videoMeta.codedFilename}
               </div>
               <div>
                 <strong>Estado:</strong> {annotationReadiness}
@@ -518,19 +540,9 @@ function App() {
             onJumpBackward={() => jump(-2)}
             onJumpForward={() => jump(2)}
           />
-          <VideoCodeForm
-            key={`${videoSrc ?? 'no-video'}:${videoCode || 'pending'}`}
-            value={videoCode}
-            disabled={!videoMeta}
-            loading={sessionState.loading}
-            ready={sessionMatchesCode}
-            sessionError={sessionState.error}
-            onValidCode={handleValidVideoCode}
-            onPendingCode={handlePendingVideoCode}
-          />
           {sessionState.recoverableBackup && (
             <div className="backup-banner">
-              <span>Hay un borrador local recuperable para este codigo.</span>
+              <span>Hay un borrador local recuperable.</span>
               <button className="secondary" onClick={sessionState.restoreBackup}>
                 Restaurar
               </button>
@@ -555,8 +567,9 @@ function App() {
                 })
               }
             >
-              Enviar anotacion
+              Enviar a revision
             </button>
+            <span className="storage-note">Anotaciones en Firestore. Video local.</span>
           </div>
           <div className="marker-row">
             <button
@@ -741,7 +754,7 @@ function App() {
               <div className="dialog-right">
                 <div className="panel-header">
                   <h3>Formulario de anotacion</h3>
-                  <span className="video-id">Video code: {videoCode || 'pendiente'}</span>
+                  <span className="video-id">Anotacion local</span>
                 </div>
                 {draft ? (
                   <AnnotationForm

@@ -17,12 +17,9 @@ export function VideoLoader({ onVideoSelected }: Props) {
     <div className="video-loader-group">
       <label className="file-picker">
         <img className="icon" src="/icon-upload.png" alt="" />
-        <span>Video local</span>
+        <span>Cargar video local</span>
         <input type="file" accept="video/*" onChange={handleChange} />
       </label>
-      <div className="privacy-inline">
-        El video permanece en este dispositivo. La app no sube videos a ningun servidor.
-      </div>
     </div>
   )
 }

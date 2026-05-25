@@ -36,7 +36,8 @@ assert(app.includes('AdminUsersPanel'), 'App missing admin users panel')
 assert(app.includes('ExportPanel'), 'App missing export panel')
 assert(!app.includes('Confirmar codigo'), 'Video code confirmation button should not remain in App UI')
 assert(!app.includes('Sin sesion'), 'App should not expose technical no-session state')
-assert(read('src/components/VideoCodeForm.tsx').includes('onValidCode'), 'Video code should prepare sessions automatically')
+assert(!app.includes('VideoCodeForm'), 'Video code form should not remain in the annotator workflow')
+assert(app.includes('codedFilenameFromFile'), 'App should use the coded local filename for traceability')
 
 for (const status of ['draft', 'submitted', 'reviewed', 'returned', 'locked']) {
   assert(rules.includes(`"${status}"`), `firestore.rules missing session status ${status}`)
@@ -53,6 +54,10 @@ assert(rules.includes('parentSession().status in ["draft", "returned"]'), 'segme
 assert(rules.includes('validOwnerStatusTransition'), 'owners should only submit or preserve editable statuses')
 assert(rules.includes('request.resource.data.status in ["reviewed", "returned", "locked"]'), 'reviewers should only set review statuses')
 assert(rules.includes('isSafeVideoCode'), 'firestore.rules should validate safe video_code shape')
+assert(rules.includes('!exists(/databases/$(database)/documents/annotation_sessions/$(sessionId))'), 'session get should allow checking missing docs before create')
+assert(rules.includes('match /annotation_segments/{segmentDocId}'), 'firestore.rules should protect unified annotation_segments')
+assert(sessionService.includes('UNIFIED_SEGMENTS'), 'annotationSessions.ts should write unified annotation_segments')
+assert(sessionService.includes('video_filename'), 'annotationSessions.ts should persist coded video filename')
 
 if (failures.length > 0) {
   console.error('Phase 2 validation failed:')

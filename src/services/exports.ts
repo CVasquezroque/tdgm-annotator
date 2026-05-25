@@ -37,6 +37,7 @@ export function buildSessionExport(input: ExportInput) {
     project: PROJECT_NAME,
     video: {
       video_code: session.videoCode,
+      video_filename: session.videoFilename,
       duration_sec: videoMeta.duration,
       source: videoMeta.source,
     },
@@ -69,6 +70,7 @@ export function buildAnnotationsCsv(input: ExportInput) {
     'schema_version',
     'session_id',
     'video_code',
+    'video_filename',
     'action',
     'start_sec',
     'end_sec',
@@ -89,6 +91,7 @@ export function buildAnnotationsCsv(input: ExportInput) {
     EXPORT_SCHEMA_VERSION,
     input.session.sessionId,
     input.session.videoCode,
+    input.session.videoFilename,
     segment.action,
     segment.startSec,
     segment.endSec,
@@ -110,13 +113,13 @@ export function buildAnnotationsCsv(input: ExportInput) {
 export function exportAnnotationsToJson(input: ExportInput) {
   const payload = buildSessionExport(input)
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' })
-  downloadBlob(blob, `${safeFilePart(input.session.videoCode)}_${safeFilePart(input.session.sessionId)}.json`)
+  downloadBlob(blob, `${safeFilePart(input.session.videoFilename)}_${safeFilePart(input.session.sessionId)}.json`)
 }
 
 export function exportAnnotationsToCsv(input: ExportInput) {
   const csv = buildAnnotationsCsv(input)
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  downloadBlob(blob, `${safeFilePart(input.session.videoCode)}_${safeFilePart(input.session.sessionId)}.csv`)
+  downloadBlob(blob, `${safeFilePart(input.session.videoFilename)}_${safeFilePart(input.session.sessionId)}.csv`)
 }
 
 export function exportTextFile(content: string, downloadName: string, type = 'text/csv;charset=utf-8;') {
