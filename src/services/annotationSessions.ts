@@ -133,6 +133,26 @@ function firestoreToSegment(data: DocumentData): Segment {
   }
 }
 
+function mapUnifiedSegmentSnap(snap: QueryDocumentSnapshot<DocumentData>) {
+  const data = snap.data()
+  return {
+    unified_segment_id: data.unified_segment_id ?? snap.id,
+    segment_id: data.segment_id,
+    session_id: data.session_id,
+    video_code: data.video_code,
+    video_filename: data.video_filename,
+    annotator_uid: data.annotator_uid,
+    annotator_code: data.annotator_code,
+    action: data.action,
+    start_sec: Number(data.start_sec),
+    end_sec: Number(data.end_sec),
+    repetition_id: data.repetition_id ?? '',
+    notes: data.notes ?? null,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+  } as AnnotationSegment & { unified_segment_id: string }
+}
+
 export function canEditSession(session: AnnotationSession | null, uid?: string | null) {
   if (!session || !uid) return false
   return session.annotator_uid === uid && (session.status === 'draft' || session.status === 'returned')
@@ -302,6 +322,21 @@ export async function listMySessions(uid: string) {
 export async function listReviewableSessions() {
   const snaps = await getDocs(query(collection(db, SESSIONS), orderBy('updated_at', 'desc'), limit(200)))
   return snaps.docs.map((snap) => mapSessionSnap(snap))
+}
+
+export async function listUnifiedSegmentsForExport(input: { uid: string; canReadAll: boolean }) {
+  const base = collection(db, UNIFIED_SEGMENTS)
+  const segmentQuery = input.canReadAll ? query(base) : query(base, where('annotator_uid', '==', input.uid))
+  const snaps = await getDocs(segmentQuery)
+  return snaps.docs
+    .map((snap) => mapUnifiedSegmentSnap(snap))
+    .sort((a, b) => {
+      const byVideo = a.video_filename.localeCompare(b.video_filename)
+      if (byVideo !== 0) return byVideo
+      const byAnnotator = a.annotator_code.localeCompare(b.annotator_code)
+      if (byAnnotator !== 0) return byAnnotator
+      return a.start_sec - b.start_sec
+    })
 }
 
 export async function loadSessionBundle(sessionId: string): Promise<SessionBundle | null> {

@@ -14,11 +14,32 @@ interface Props {
   onOpenSession: (session: AnnotationSession, segments: Segment[]) => void
 }
 
+function formatDate(value: unknown) {
+  const iso = timestampToIso(value)
+  if (!iso) return 'Sin fecha'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return 'Sin fecha'
+  return new Intl.DateTimeFormat('es-PE', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function reviewTitle(session: AnnotationSession) {
+  if (session.status === 'submitted') return 'Lista para revisar'
+  if (session.status === 'returned') return 'Devuelta para correccion'
+  if (session.status === 'reviewed') return 'Revision completada'
+  if (session.status === 'locked') return 'Bloqueada'
+  return 'Borrador'
+}
+
 export function ReviewerSessionsPanel({ profile, onOpenSession }: Props) {
   const [sessions, setSessions] = useState<AnnotationSession[]>([])
   const [filter, setFilter] = useState('')
   const [comment, setComment] = useState('')
-  const [selectedEvents, setSelectedEvents] = useState<string[]>([])
+  const [selectedEvents, setSelectedEvents] = useState<{ sessionId: string; events: string[] } | null>(null)
   const [loading, setLoading] = useState(false)
 
   const refresh = async () => {
@@ -57,28 +78,47 @@ export function ReviewerSessionsPanel({ profile, onOpenSession }: Props) {
 
   const showEvents = async (sessionId: string) => {
     const events = await getReviewEvents(sessionId)
-    setSelectedEvents(events.map((event) => `${event.event_type}: ${event.comment ?? 'sin comentario'}`))
+    setSelectedEvents({
+      sessionId,
+      events: events.map((event) => `${event.event_type}: ${event.comment ?? 'sin comentario'}`),
+    })
   }
 
   return (
-    <div className="compact-panel">
-      <div className="panel-header">
-        <h3>Revision</h3>
+    <div className="compact-panel review-panel">
+      <div className="panel-header review-heading">
+        <div>
+          <span className="section-kicker">Revision</span>
+          <h3>Anotaciones recibidas</h3>
+          <p>Abre una anotacion, marca el resultado y registra comentarios si corresponde.</p>
+        </div>
         <button className="ghost" onClick={() => void refresh()} disabled={loading}>
-          Actualizar
+          {loading ? 'Actualizando...' : 'Actualizar'}
         </button>
       </div>
-      <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filtrar por anotador o estado" />
-      <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder="Comentario de revision" />
+      <div className="review-controls">
+        <label>
+          Buscar
+          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Anotador o estado" />
+        </label>
+        <label>
+          Comentario para la accion
+          <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder="Opcional" />
+        </label>
+      </div>
       <div className="session-list">
+        {visible.length === 0 && <p className="placeholder-text">No hay anotaciones para revisar con ese filtro.</p>}
         {visible.map((session) => (
-          <div className="session-review-row" key={session.session_id}>
-            <button className="session-row" onClick={() => void openSession(session.session_id)}>
-              <span>
-                <strong>Anotacion local</strong>
-                <small>
-                  {session.annotator_code} - {timestampToIso(session.updated_at) ?? 'sin fecha'}
-                </small>
+          <div className="session-review-row review-card" key={session.session_id}>
+            <button className="session-row review-card-main" onClick={() => void openSession(session.session_id)}>
+              <span className="review-card-copy">
+                <strong>{reviewTitle(session)}</strong>
+                <small>{session.video_filename || 'Archivo codificado'}</small>
+                <span className="review-meta">
+                  <span>{session.annotator_code || 'codigo pendiente'}</span>
+                  <span>Actualizada {formatDate(session.updated_at)}</span>
+                  <span>{session.segment_count} segmentos</span>
+                </span>
               </span>
               <SessionStatusBadge status={session.status} />
             </button>
@@ -96,16 +136,17 @@ export function ReviewerSessionsPanel({ profile, onOpenSession }: Props) {
                 Eventos
               </button>
             </div>
+            {selectedEvents?.sessionId === session.session_id && (
+              <div className="review-events">
+                {selectedEvents.events.length === 0 && <div>No hay eventos registrados.</div>}
+                {selectedEvents.events.map((event) => (
+                  <div key={event}>{event}</div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
-      {selectedEvents.length > 0 && (
-        <div className="review-events">
-          {selectedEvents.map((event) => (
-            <div key={event}>{event}</div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

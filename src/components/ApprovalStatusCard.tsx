@@ -40,8 +40,8 @@ const STATUS_COPY: Record<AccessStatus, { title: string; body: string }> = {
     body: 'No pudimos crear tu perfil institucional pendiente con los permisos actuales. Contacta al administrador del proyecto.',
   },
   network_error: {
-    title: 'No se pudo conectar con Firestore',
-    body: 'La sesion existe, pero no pudimos leer o crear el perfil por un problema de red. Intenta nuevamente.',
+    title: 'No se pudo conectar con el perfil institucional',
+    body: 'No pudimos leer o crear el perfil por un problema de red. Intenta nuevamente.',
   },
   unknown_error: {
     title: 'No se pudo preparar tu perfil',

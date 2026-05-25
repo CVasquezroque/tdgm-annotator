@@ -1,5 +1,5 @@
 import { APP_VERSION, EXPORT_SCHEMA_VERSION, PROJECT_NAME } from '../constants/app'
-import type { AnnotationSessionExportMeta, Segment, VideoMeta } from '../types'
+import type { AnnotationSegment, AnnotationSessionExportMeta, Segment, VideoMeta } from '../types'
 
 interface ExportInput {
   segments: Segment[]
@@ -18,6 +18,14 @@ function escapeCsvField(value: string | number | undefined | null): string {
 
 function safeFilePart(value: string) {
   return value.replace(/[^A-Z0-9_-]/gi, '_').slice(0, 80) || 'video'
+}
+
+function toIso(value: unknown): string {
+  if (!value) return ''
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === 'string') return value
+  const maybeTimestamp = value as { toDate?: () => Date }
+  return typeof maybeTimestamp.toDate === 'function' ? maybeTimestamp.toDate().toISOString() : ''
 }
 
 function downloadBlob(blob: Blob, downloadName: string) {
@@ -104,6 +112,50 @@ export function buildAnnotationsCsv(input: ExportInput) {
     input.session.reviewedAt ?? '',
     input.session.lockedAt ?? '',
     segment.notes ?? '',
+    APP_VERSION,
+  ])
+
+  return [header, ...rows].map((row) => row.map((cell) => escapeCsvField(cell)).join(',')).join('\n')
+}
+
+export function buildUnifiedSegmentsCsv(segments: Array<AnnotationSegment & { unified_segment_id?: string }>) {
+  const header = [
+    'project',
+    'schema_version',
+    'unified_segment_id',
+    'segment_id',
+    'session_id',
+    'video_filename',
+    'video_code',
+    'annotator_uid',
+    'annotator_code',
+    'action',
+    'start_sec',
+    'end_sec',
+    'repetition_id',
+    'notes',
+    'created_at',
+    'updated_at',
+    'app_version',
+  ]
+
+  const rows = segments.map((segment) => [
+    PROJECT_NAME,
+    EXPORT_SCHEMA_VERSION,
+    segment.unified_segment_id ?? '',
+    segment.segment_id,
+    segment.session_id,
+    segment.video_filename,
+    segment.video_code,
+    segment.annotator_uid,
+    segment.annotator_code,
+    segment.action,
+    segment.start_sec,
+    segment.end_sec,
+    segment.repetition_id,
+    segment.notes ?? '',
+    toIso(segment.created_at),
+    toIso(segment.updated_at),
     APP_VERSION,
   ])
 

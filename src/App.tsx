@@ -41,9 +41,14 @@ function codedFilenameFromFile(file: File) {
   return cleaned || `LOCAL-${Date.now().toString(36).toUpperCase()}`
 }
 
+type WorkspaceView = 'annotate' | 'sessions' | 'exports' | 'review' | 'users'
+
 function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const videoObjectUrlRef = useRef<string | null>(null)
+  const userMenuRef = useRef<HTMLDetailsElement | null>(null)
+  const profileModalRef = useRef<HTMLDivElement | null>(null)
+  const profileFirstFieldRef = useRef<HTMLInputElement | null>(null)
   const [videoSrc, setVideoSrc] = useState<string | null>(null)
   const [videoMeta, setVideoMeta] = useState<VideoMeta | null>(null)
   const [videoCode, setVideoCode] = useState('')
@@ -69,6 +74,7 @@ function App() {
   const [profileDraftInstitution, setProfileDraftInstitution] = useState('')
   const [profileSaveError, setProfileSaveError] = useState<string | null>(null)
   const [isProfileSaving, setIsProfileSaving] = useState(false)
+  const [activeView, setActiveView] = useState<WorkspaceView>('annotate')
   const {
     user,
     profile,
@@ -86,14 +92,19 @@ function App() {
 
   const { previewUrl, previewTime, requestPreview } = useThumbnailGenerator(videoSrc)
 
-  const annotatorCode = profile?.annotator_code.trim() || user?.uid.slice(0, 8).toUpperCase() || ''
-  const sessionState = useAnnotationSession(profile, videoCode, videoMeta?.codedFilename || '', duration || null)
+  const annotatorCode = profile?.annotator_code.trim() || ''
+  const annotatorCodeLabel = annotatorCode || 'codigo pendiente'
+  const sessionProfile = profile && annotatorCode ? profile : null
+  const sessionState = useAnnotationSession(sessionProfile, videoCode, videoMeta?.codedFilename || '', duration || null)
   const { session, segments, editable, autosaveStatus } = sessionState
   const sessionMatchesCode = Boolean(session && videoCode && session.video_code === videoCode)
 
-  const canAnnotateVideo = Boolean(videoSrc && videoCode.trim() && sessionMatchesCode && !sessionState.loading && editable)
+  const canAnnotateVideo = Boolean(
+    videoSrc && annotatorCode && videoCode.trim() && sessionMatchesCode && !sessionState.loading && editable,
+  )
   const canSubmitSession = Boolean(
     videoSrc &&
+      annotatorCode &&
       videoCode.trim() &&
       sessionMatchesCode &&
       !sessionState.loading &&
@@ -108,8 +119,8 @@ function App() {
       : profile?.role === 'supervisor'
         ? 'Supervisor'
         : profile?.role === 'reviewer'
-          ? 'Reviewer'
-          : 'Annotator'
+          ? 'Revisor'
+          : 'Anotador'
   const displayName = profile?.full_name?.trim() || user?.username || ''
   const shortName = useMemo(() => {
     const source = displayName.trim() || user?.email?.split('@')[0] || 'usuario'
@@ -120,19 +131,47 @@ function App() {
     const parts = source.split(/\s+/).filter(Boolean)
     return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : source.slice(0, 2)).toUpperCase()
   }, [displayName, user?.email])
+
+  const availableViews = useMemo(() => {
+    const views: Array<{ id: WorkspaceView; label: string }> = [
+      { id: 'annotate', label: 'Anotar' },
+      { id: 'sessions', label: 'Mis anotaciones' },
+      { id: 'exports', label: 'Exportar' },
+    ]
+    if (canReview) views.push({ id: 'review', label: 'Revision' })
+    if (canManageUsers) views.push({ id: 'users', label: 'Usuarios' })
+    return views
+  }, [canManageUsers, canReview])
+
   const annotationReadiness = (() => {
     if (!videoMeta) return 'Carga un video local para iniciar.'
+    if (!annotatorCode) return 'Codigo de anotador pendiente. Contacta al administrador.'
     if (sessionState.loading) return 'Preparando anotacion...'
     if (sessionState.error) return 'No se pudo preparar la anotacion. Revisa tu conexion o permisos.'
-    if (sessionMatchesCode) return 'Anotacion lista'
+    if (sessionMatchesCode && session?.status === 'submitted') return 'Enviada para revision'
+    if (sessionMatchesCode && session?.status === 'reviewed') return 'Revisada'
+    if (sessionMatchesCode && session?.status === 'returned') return 'Devuelta para correccion'
+    if (sessionMatchesCode && session?.status === 'locked') return 'Bloqueada despues de revision'
+    if (sessionMatchesCode) return 'Lista para anotar'
     return 'Preparando anotacion...'
   })()
 
+  useEffect(() => {
+    if (!availableViews.some((view) => view.id === activeView)) {
+      setActiveView('annotate')
+    }
+  }, [activeView, availableViews])
+
   const openProfileEditor = () => {
+    if (userMenuRef.current) userMenuRef.current.open = false
     setProfileDraftName(profile?.full_name ?? '')
     setProfileDraftInstitution(profile?.institution ?? '')
     setProfileSaveError(null)
     setShowProfileModal(true)
+  }
+
+  const closeProfileEditor = () => {
+    setShowProfileModal(false)
   }
 
   const handleSaveProfile = async () => {
@@ -334,6 +373,7 @@ function App() {
     setVideoCode(nextSession.video_code)
     sessionState.refreshFromSession(nextSession, nextSegments)
     setStatus('Anotacion cargada. Carga el video local correspondiente para reproducirlo.')
+    setActiveView('annotate')
   }
 
   useKeyboardShortcuts({
@@ -383,6 +423,27 @@ function App() {
   }, [isExpanded])
 
   useEffect(() => {
+    const closeMenu = (event: MouseEvent) => {
+      const menu = userMenuRef.current
+      if (!menu?.open || !(event.target instanceof Node)) return
+      if (!menu.contains(event.target)) menu.open = false
+    }
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && userMenuRef.current?.open) {
+        userMenuRef.current.open = false
+      }
+    }
+
+    document.addEventListener('mousedown', closeMenu)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeMenu)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!showFormModal) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -392,6 +453,44 @@ function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [showFormModal])
+
+  useEffect(() => {
+    if (!showProfileModal) return undefined
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    window.setTimeout(() => profileFirstFieldRef.current?.focus(), 0)
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowProfileModal(false)
+        return
+      }
+      if (event.key !== 'Tab' || !profileModalRef.current) return
+
+      const focusable = Array.from(
+        profileModalRef.current.querySelectorAll<HTMLElement>(
+          'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => !element.hasAttribute('disabled') && element.tabIndex !== -1)
+
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      previousFocus?.focus()
+    }
+  }, [showProfileModal])
 
   useEffect(() => {
     if (!status) return
@@ -453,19 +552,34 @@ function App() {
           </div>
         </div>
         <div className="header-actions">
-          <details className="user-menu">
-            <summary aria-label="Menu de usuario">
+          <details className="user-menu" ref={userMenuRef}>
+            <summary aria-label="Menu de usuario" aria-haspopup="menu">
               <span className="user-avatar">{initials}</span>
-              <span className="user-menu-name">{shortName}</span>
-              <span className="user-menu-chevron">⌄</span>
+              <span className="user-summary">
+                <span className="user-menu-name">{shortName}</span>
+                <small>
+                  {roleLabel} - {annotatorCodeLabel}
+                </small>
+              </span>
+              <span className="user-menu-chevron">v</span>
             </summary>
-            <div className="user-menu-panel">
-              <strong>{displayName}</strong>
-              <span>{annotatorCode || 'sin codigo'} · {roleLabel}</span>
-              <button className="ghost" onClick={openProfileEditor}>
+            <div className="user-menu-panel" role="menu">
+              <div className="user-menu-panel-header">
+                <strong>{displayName}</strong>
+                <span>{user.email}</span>
+              </div>
+              <div className="user-menu-meta">
+                <span>
+                  Rol <strong>{roleLabel}</strong>
+                </span>
+                <span>
+                  Codigo <strong>{annotatorCodeLabel}</strong>
+                </span>
+              </div>
+              <button className="ghost" role="menuitem" onClick={openProfileEditor}>
                 Editar perfil
               </button>
-              <button className="ghost" onClick={() => void logout()}>
+              <button className="ghost" role="menuitem" onClick={() => void logout()}>
                 Cerrar sesion
               </button>
             </div>
@@ -473,22 +587,31 @@ function App() {
         </div>
       </header>
 
-      <section className="workspace-toolbar" aria-label="Controles principales">
-        <div className="user-strip">
-          <span className="user-strip-icon" aria-hidden="true" />
-          <strong>{shortName}</strong>
-          <span>{annotatorCode || 'sin codigo'}</span>
-          <em>{roleLabel}</em>
-        </div>
-        <VideoLoader onVideoSelected={handleVideoSelected} />
-        <div className="privacy-inline">
-          El video permanece en este dispositivo. No se sube a ningun servidor.
-        </div>
-      </section>
+      <nav className="workspace-tabs" aria-label="Vistas de trabajo">
+        {availableViews.map((view) => (
+          <button
+            key={view.id}
+            className={activeView === view.id ? 'active' : ''}
+            type="button"
+            onClick={() => setActiveView(view.id)}
+          >
+            {view.label}
+          </button>
+        ))}
+      </nav>
 
-      <ShortcutsHelp />
+      {activeView === 'annotate' && (
+        <div className="view-shell annotation-view">
+          <section className="workspace-toolbar annotation-toolbar" aria-label="Controles principales">
+            <VideoLoader onVideoSelected={handleVideoSelected} />
+            <div className="privacy-inline">
+              El video permanece en este dispositivo. No se sube a ningun servidor.
+            </div>
+          </section>
 
-      <main className="layout">
+          <ShortcutsHelp />
+
+          <main className="layout annotation-layout">
         {isExpanded && <div className="overlay-backdrop" onClick={() => setIsExpanded(false)} />}
         <section className={`player-section ${isExpanded ? 'expanded' : ''}`}>
           {videoMeta && (
@@ -551,11 +674,13 @@ function App() {
               </button>
             </div>
           )}
-          <div className="session-toolbar">
-            <span className={`session-readiness ${sessionState.error ? 'error' : sessionMatchesCode ? 'ready' : 'idle'}`}>
-              {annotationReadiness}
-            </span>
-            <AutosaveStatus status={autosaveStatus} error={sessionState.error} />
+          <div className="session-toolbar annotation-status-bar">
+            <div className="annotation-status-copy">
+              <span className={`session-readiness ${sessionState.error ? 'error' : sessionMatchesCode ? 'ready' : 'idle'}`}>
+                {annotationReadiness}
+              </span>
+              <AutosaveStatus status={autosaveStatus} error={sessionState.error} />
+            </div>
             <button
               className="primary-strong"
               disabled={!canSubmitSession}
@@ -569,7 +694,6 @@ function App() {
             >
               Enviar a revision
             </button>
-            <span className="storage-note">Anotaciones en Firestore. Video local.</span>
           </div>
           <div className="marker-row">
             <button
@@ -641,12 +765,23 @@ function App() {
               />
             </div>
           </div>
-          <ExportPanel videoMeta={videoMeta} session={session} segments={segments} canExportAll={canReview} />
-          <MySessionsPanel uid={user.uid} onOpenSession={handleOpenStoredSession} />
-          {canReview && profile && <ReviewerSessionsPanel profile={profile} onOpenSession={handleOpenStoredSession} />}
-          {canManageUsers && <AdminUsersPanel actorUid={user.uid} />}
         </section>
-      </main>
+          </main>
+        </div>
+      )}
+
+      {activeView !== 'annotate' && (
+        <main className={`management-view view-shell management-${activeView}`}>
+          {activeView === 'sessions' && <MySessionsPanel uid={user.uid} onOpenSession={handleOpenStoredSession} />}
+          {activeView === 'exports' && (
+            <ExportPanel uid={user.uid} videoMeta={videoMeta} session={session} segments={segments} canExportAll={canReview} />
+          )}
+          {activeView === 'review' && canReview && profile && (
+            <ReviewerSessionsPanel profile={profile} onOpenSession={handleOpenStoredSession} />
+          )}
+          {activeView === 'users' && canManageUsers && <AdminUsersPanel actorUid={user.uid} />}
+        </main>
+      )}
       {showFormModal && (
         <>
           <div className="dialog-backdrop" onClick={() => setShowFormModal(false)} />
@@ -792,18 +927,32 @@ function App() {
       )}
       {showProfileModal && (
         <>
-          <div className="dialog-backdrop" onClick={() => setShowProfileModal(false)} />
-          <div className="profile-modal-card" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">
-            <div className="panel-header">
-              <h3 id="profile-modal-title">Editar perfil</h3>
+          <div className="dialog-backdrop profile-backdrop" onClick={closeProfileEditor} />
+          <div
+            className="profile-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-modal-title"
+            aria-describedby="profile-modal-description"
+            ref={profileModalRef}
+          >
+            <div className="profile-modal-header">
+              <div>
+                <span className="modal-kicker">Perfil institucional</span>
+                <h3 id="profile-modal-title">Editar perfil</h3>
+              </div>
+              <button className="ghost icon-button" type="button" aria-label="Cerrar editor de perfil" onClick={closeProfileEditor}>
+                x
+              </button>
             </div>
-            <p className="profile-edit-note">
+            <p className="profile-edit-note" id="profile-modal-description">
               Puedes actualizar solo los datos institucionales seguros. Rol, estado, codigo de anotador y aprobaciones
               quedan bajo control del equipo administrador.
             </p>
             <label>
               Nombre
               <input
+                ref={profileFirstFieldRef}
                 value={profileDraftName}
                 onChange={(e) => setProfileDraftName(e.target.value)}
                 placeholder="Nombre y apellido"
@@ -829,7 +978,7 @@ function App() {
             </div>
             {profileSaveError && <div className="form-error">{profileSaveError}</div>}
             <div className="profile-modal-actions">
-              <button className="secondary" onClick={() => setShowProfileModal(false)} disabled={isProfileSaving}>
+              <button className="secondary" onClick={closeProfileEditor} disabled={isProfileSaving}>
                 Cancelar
               </button>
               <button className="primary-strong" onClick={() => void handleSaveProfile()} disabled={isProfileSaving}>

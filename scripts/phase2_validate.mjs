@@ -16,6 +16,7 @@ function assertNotIncludes(text, forbidden, label) {
 }
 
 const app = read('src/App.tsx')
+const exportPanel = read('src/components/ExportPanel.tsx')
 const sessionService = read('src/services/annotationSessions.ts')
 const sessionHook = read('src/hooks/useAnnotationSession.ts')
 const exportsSource = read('src/services/exports.ts')
@@ -58,6 +59,9 @@ assert(rules.includes('!exists(/databases/$(database)/documents/annotation_sessi
 assert(rules.includes('match /annotation_segments/{segmentDocId}'), 'firestore.rules should protect unified annotation_segments')
 assert(sessionService.includes('UNIFIED_SEGMENTS'), 'annotationSessions.ts should write unified annotation_segments')
 assert(sessionService.includes('video_filename'), 'annotationSessions.ts should persist coded video filename')
+assert(sessionService.includes('listUnifiedSegmentsForExport'), 'annotationSessions.ts should list unified segments for CSV export')
+assert(exportsSource.includes('buildUnifiedSegmentsCsv'), 'exports.ts should build CSV from unified annotation_segments')
+assert(exportPanel.includes('Todos los segmentos'), 'ExportPanel should expose unified segments CSV export for privileged users')
 
 if (failures.length > 0) {
   console.error('Phase 2 validation failed:')

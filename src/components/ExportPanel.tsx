@@ -1,9 +1,21 @@
 import type { AnnotationSession, Segment, VideoMeta } from '../types'
-import { buildAnnotationsCsv, exportAnnotationsToCsv, exportAnnotationsToJson, exportTextFile } from '../services/exports'
-import { listReviewableSessions, loadSessionBundle, timestampToIso } from '../services/annotationSessions'
+import {
+  buildAnnotationsCsv,
+  buildUnifiedSegmentsCsv,
+  exportAnnotationsToCsv,
+  exportAnnotationsToJson,
+  exportTextFile,
+} from '../services/exports'
+import {
+  listReviewableSessions,
+  listUnifiedSegmentsForExport,
+  loadSessionBundle,
+  timestampToIso,
+} from '../services/annotationSessions'
 import { APP_VERSION } from '../constants/app'
 
 interface Props {
+  uid: string
   videoMeta: VideoMeta | null
   session: AnnotationSession | null
   segments: Segment[]
@@ -28,7 +40,7 @@ function metaFor(session: AnnotationSession) {
   }
 }
 
-export function ExportPanel({ videoMeta, session, segments, canExportAll }: Props) {
+export function ExportPanel({ uid, videoMeta, session, segments, canExportAll }: Props) {
   const canExportCurrent = Boolean(videoMeta && session && segments.length > 0)
 
   const exportCurrent = (format: 'csv' | 'json') => {
@@ -57,6 +69,13 @@ export function ExportPanel({ videoMeta, session, segments, canExportAll }: Prop
     exportTextFile([header, ...rows].join('\n'), `DIANA_${status ?? 'all'}_sessions.csv`)
   }
 
+  const exportFirestoreSegments = async () => {
+    const firestoreSegments = await listUnifiedSegmentsForExport({ uid, canReadAll: canExportAll })
+    const csv = buildUnifiedSegmentsCsv(firestoreSegments)
+    const scope = canExportAll ? 'all' : 'my'
+    exportTextFile(csv, `DIANA_segments_${scope}.csv`)
+  }
+
   return (
     <div className="compact-panel export-panel">
       <div className="panel-header">
@@ -71,6 +90,9 @@ export function ExportPanel({ videoMeta, session, segments, canExportAll }: Prop
         </button>
         {canExportAll && (
           <>
+            <button className="secondary" onClick={() => void exportFirestoreSegments()}>
+              Todos los segmentos
+            </button>
             <button className="secondary" onClick={() => void exportConsolidated()}>
               Consolidado
             </button>
@@ -81,6 +103,11 @@ export function ExportPanel({ videoMeta, session, segments, canExportAll }: Prop
               Bloqueados
             </button>
           </>
+        )}
+        {!canExportAll && (
+          <button className="secondary" onClick={() => void exportFirestoreSegments()}>
+            Mis segmentos
+          </button>
         )}
       </div>
     </div>

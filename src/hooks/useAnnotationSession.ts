@@ -21,7 +21,7 @@ interface LocalDraftBackup {
   status: AnnotationSession['status']
 }
 
-const FRIENDLY_SESSION_ERROR = 'No se pudo preparar la sesion. Revisa tu conexion o permisos.'
+const FRIENDLY_SESSION_ERROR = 'No se pudo preparar la anotacion. Revisa tu conexion o permisos.'
 const FRIENDLY_SAVE_ERROR = 'No se pudo guardar. Revisa tu conexion o permisos.'
 
 function backupKey(uid: string, videoCode: string) {
@@ -125,7 +125,7 @@ export function useAnnotationSession(
           videoCode,
           videoFilename: videoFilenameRef.current || videoCode,
           annotatorUid: profile.uid,
-          annotatorCode: profile.annotator_code || profile.uid.slice(0, 8).toUpperCase(),
+          annotatorCode: profile.annotator_code || 'CODE_PENDING',
           durationSec: durationSecRef.current,
         })
         if (cancelled) return
