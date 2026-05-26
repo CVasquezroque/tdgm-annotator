@@ -46,6 +46,7 @@ type WorkspaceView = 'annotate' | 'sessions' | 'exports' | 'review' | 'users'
 function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const videoObjectUrlRef = useRef<string | null>(null)
+  const playerSectionRef = useRef<HTMLElement | null>(null)
   const userMenuRef = useRef<HTMLDetailsElement | null>(null)
   const profileModalRef = useRef<HTMLDivElement | null>(null)
   const profileFirstFieldRef = useRef<HTMLInputElement | null>(null)
@@ -98,18 +99,14 @@ function App() {
   const sessionState = useAnnotationSession(sessionProfile, videoCode, videoMeta?.codedFilename || '', duration || null)
   const { session, segments, editable, autosaveStatus } = sessionState
   const sessionMatchesCode = Boolean(session && videoCode && session.video_code === videoCode)
-
-  const canAnnotateVideo = Boolean(
-    videoSrc && annotatorCode && videoCode.trim() && sessionMatchesCode && !sessionState.loading && editable,
+  const sessionReady = Boolean(
+    videoSrc && annotatorCode && videoCode.trim() && sessionMatchesCode && !sessionState.loading && !sessionState.error,
   )
+  const canUseAnnotationControls = Boolean(sessionReady && editable)
+  const canMarkStart = Boolean(canUseAnnotationControls && selectedAction)
+  const canMarkEnd = Boolean(canUseAnnotationControls && selectedAction && pendingStart !== null)
   const canSubmitSession = Boolean(
-    videoSrc &&
-      annotatorCode &&
-      videoCode.trim() &&
-      sessionMatchesCode &&
-      !sessionState.loading &&
-      editable &&
-      segments.length > 0,
+    canUseAnnotationControls && segments.length > 0,
   )
   const canManageUsers = profile?.role === 'admin' || profile?.role === 'supervisor'
   const canReview = canManageUsers || profile?.role === 'reviewer'
@@ -146,15 +143,27 @@ function App() {
   const annotationReadiness = (() => {
     if (!videoMeta) return 'Carga un video local para iniciar.'
     if (!annotatorCode) return 'Codigo de anotador pendiente. Contacta al administrador.'
-    if (sessionState.loading) return 'Preparando anotacion...'
-    if (sessionState.error) return 'No se pudo preparar la anotacion. Revisa tu conexion o permisos.'
+    if (sessionState.loading) return 'Guardando cambios.'
+    if (sessionState.error) return 'No se pudo guardar.'
     if (sessionMatchesCode && session?.status === 'submitted') return 'Enviada para revision'
     if (sessionMatchesCode && session?.status === 'reviewed') return 'Revisada'
     if (sessionMatchesCode && session?.status === 'returned') return 'Devuelta para correccion'
     if (sessionMatchesCode && session?.status === 'locked') return 'Bloqueada despues de revision'
     if (sessionMatchesCode) return 'Lista para anotar'
-    return 'Preparando anotacion...'
+    return 'Carga un video para iniciar.'
   })()
+
+  const getAnnotationBlockMessage = (needsStart = false) => {
+    if (!videoSrc) return 'Carga un video para iniciar.'
+    if (!annotatorCode) return 'Codigo de anotador pendiente. Contacta al administrador.'
+    if (sessionState.loading) return 'Guardando cambios.'
+    if (sessionState.error) return 'No se pudo guardar.'
+    if (!sessionMatchesCode) return 'Carga un video para iniciar.'
+    if (!editable) return 'Esta anotacion no se puede editar.'
+    if (!selectedAction) return 'Selecciona una accion.'
+    if (needsStart && pendingStart === null) return 'Marca el inicio primero.'
+    return null
+  }
 
   useEffect(() => {
     if (!availableViews.some((view) => view.id === activeView)) {
@@ -260,12 +269,9 @@ function App() {
   }
 
   const markStart = () => {
-    if (!canAnnotateVideo) {
-      setMarkError('Espera a que la anotacion este lista.')
-      return
-    }
-    if (!selectedAction) {
-      setMarkError('Debes escoger una accion.')
+    const blockMessage = getAnnotationBlockMessage()
+    if (blockMessage) {
+      setMarkError(blockMessage)
       return
     }
     setMarkError(null)
@@ -276,31 +282,30 @@ function App() {
   }
 
   const markEnd = () => {
-    if (!canAnnotateVideo) {
-      setMarkError('Espera a que la anotacion este lista.')
+    const blockMessage = getAnnotationBlockMessage(true)
+    if (blockMessage) {
+      setMarkError(blockMessage)
       return
     }
-    if (!selectedAction) {
-      setMarkError('Debes escoger una accion.')
+    const start = pendingStart
+    const action = selectedAction
+    if (start === null || !action) {
+      setMarkError(start === null ? 'Marca el inicio primero.' : 'Selecciona una accion.')
       return
     }
     setMarkError(null)
-    if (pendingStart === null) {
-      setStatus('Primero marca el inicio.')
-      return
-    }
-    if (currentTime <= pendingStart) {
+    if (currentTime <= start) {
       setStatus('El fin debe ser mayor que el inicio.')
       return
     }
     setPendingEnd(currentTime)
     setStatus(`Fin marcado en ${formatTime(currentTime)}. Completa el formulario.`)
     setDraft({
-      action: selectedAction,
-      startSec: pendingStart,
+      action,
+      startSec: start,
       endSec: currentTime,
       annotatorId: annotatorCode,
-      repetitionId: nextRepetitionFor(selectedAction),
+      repetitionId: nextRepetitionFor(action),
     })
     setIsExpanded(false)
     setPendingSeek(currentTime)
@@ -326,6 +331,13 @@ function App() {
     setSelectedAction('')
     setIsExpanded(false)
     setShowFormModal(false)
+    if (videoRef.current) {
+      try {
+        videoRef.current.currentTime = segment.endSec
+      } catch {
+        /* ignore seek errors */
+      }
+    }
     setPendingSeek(segment.endSec)
     setCurrentTime(segment.endSec)
   }
@@ -385,7 +397,7 @@ function App() {
     onJumpBackwardPrecise: () => jump(-0.04),
     onJumpForwardPrecise: () => jump(0.04),
     onSaveSegment: () => {
-      if (draft && draft.endSec > draft.startSec && canAnnotateVideo) {
+      if (draft && draft.endSec > draft.startSec && canUseAnnotationControls) {
         handleSubmitSegment({
           id: draft.id ?? crypto.randomUUID?.() ?? String(Date.now()),
           action: draft.action,
@@ -413,6 +425,10 @@ function App() {
 
   useEffect(() => {
     if (!isExpanded) return
+    window.setTimeout(() => {
+      playerSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 0)
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setIsExpanded(false)
@@ -601,7 +617,7 @@ function App() {
       </nav>
 
       {activeView === 'annotate' && (
-        <div className="view-shell annotation-view">
+        <div className={`view-shell annotation-view ${isExpanded ? 'video-focus-mode' : ''}`}>
           <section className="workspace-toolbar annotation-toolbar" aria-label="Controles principales">
             <VideoLoader onVideoSelected={handleVideoSelected} />
             <div className="privacy-inline">
@@ -612,8 +628,18 @@ function App() {
           <ShortcutsHelp />
 
           <main className="layout annotation-layout">
-        {isExpanded && <div className="overlay-backdrop" onClick={() => setIsExpanded(false)} />}
-        <section className={`player-section ${isExpanded ? 'expanded' : ''}`}>
+        <section className={`player-section ${isExpanded ? 'expanded' : ''}`} ref={playerSectionRef}>
+          {isExpanded && (
+            <div className="expanded-viewer-header">
+              <div>
+                <strong>Vista ampliada</strong>
+                <span>Video local en este dispositivo</span>
+              </div>
+              <button className="secondary" type="button" onClick={() => setIsExpanded(false)}>
+                Volver a vista normal
+              </button>
+            </div>
+          )}
           {videoMeta && (
             <div className="video-meta">
               <div>
@@ -698,16 +724,16 @@ function App() {
           <div className="marker-row">
             <button
               onClick={markStart}
-              disabled={!selectedAction || !canAnnotateVideo}
-              title={!canAnnotateVideo ? 'Espera a que la anotacion este lista' : 'Marcar inicio'}
+              disabled={!canMarkStart}
+              title={getAnnotationBlockMessage() ?? 'Marcar inicio'}
             >
               <img className="icon" src="/icon-flag.png" alt="" />
               Marcar inicio
             </button>
             <button
               onClick={markEnd}
-              disabled={!selectedAction || !canAnnotateVideo}
-              title={!canAnnotateVideo ? 'Espera a que la anotacion este lista' : 'Marcar fin'}
+              disabled={!canMarkEnd}
+              title={getAnnotationBlockMessage(true) ?? 'Marcar fin'}
             >
               <img className="icon" src="/icon-flag.png" alt="" />
               Marcar fin
@@ -724,7 +750,7 @@ function App() {
                 Accion a anotar
                 <select
                   value={selectedAction || ''}
-                  disabled={!canAnnotateVideo}
+                  disabled={!canUseAnnotationControls}
                   onChange={(e) => selectAction(e.target.value as ActionId | '')}
                 >
                   <option value="">Escoge una accion</option>
@@ -838,16 +864,16 @@ function App() {
                 <div className="marker-row">
                   <button
                     onClick={markStart}
-                    disabled={!selectedAction || !canAnnotateVideo}
-                    title={!canAnnotateVideo ? 'Espera a que la anotacion este lista' : 'Marcar inicio'}
+                    disabled={!canMarkStart}
+                    title={getAnnotationBlockMessage() ?? 'Marcar inicio'}
                   >
                     <img className="icon" src="/icon-flag.png" alt="" />
                     Marcar inicio
                   </button>
                   <button
                     onClick={markEnd}
-                    disabled={!selectedAction || !canAnnotateVideo}
-                    title={!canAnnotateVideo ? 'Espera a que la anotacion este lista' : 'Marcar fin'}
+                    disabled={!canMarkEnd}
+                    title={getAnnotationBlockMessage(true) ?? 'Marcar fin'}
                   >
                     <img className="icon" src="/icon-flag.png" alt="" />
                     Marcar fin
@@ -862,7 +888,7 @@ function App() {
                       Accion a anotar
                       <select
                         value={selectedAction || ''}
-                        disabled={!canAnnotateVideo}
+                        disabled={!canUseAnnotationControls}
                         onChange={(e) => selectAction(e.target.value as ActionId | '')}
                       >
                         <option value="">Escoge una accion</option>

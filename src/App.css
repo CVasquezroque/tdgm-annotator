@@ -178,29 +178,141 @@ button .icon {
 }
 
 .player-section.expanded {
-  position: fixed;
-  inset: var(--space-sm);
-  z-index: 1001;
+  position: relative;
+  width: 100%;
+  max-height: none;
+  transform: none;
+  z-index: 2;
   background: var(--white);
-  overflow-y: auto;
-  overflow-x: hidden;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.25);
+  overflow: visible;
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.16);
   border: 1px solid var(--neutral-200);
   border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  animation: view-enter 180ms ease-out both;
+}
+
+.expanded-viewer-header {
+  display: none;
+}
+
+.player-section.expanded .expanded-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.expanded-viewer-header div {
+  display: grid;
+  gap: 2px;
+}
+
+.expanded-viewer-header strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.expanded-viewer-header span {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.player-section.expanded .video-meta,
+.player-section.expanded .session-toolbar,
+.player-section.expanded .backup-banner {
+  display: none;
+}
+
+.player-section.expanded .player-shell {
+  flex: 0 0 auto;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  aspect-ratio: 16 / 9;
+}
+
+.player-section.expanded .video-element {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.player-section.expanded .controls,
+.player-section.expanded .marker-row,
+.player-section.expanded .timeline-container {
+  flex: 0 0 auto;
+}
+
+.player-section.expanded .controls {
+  padding-bottom: var(--space-sm);
+}
+
+.player-section.expanded .marker-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(220px, 1fr);
+  align-items: end;
+  gap: var(--space-sm);
+  padding-top: 0;
+}
+
+.player-section.expanded .marker-row .pending,
+.player-section.expanded .marker-row .status {
+  grid-column: 1 / -1;
+}
+
+.player-section.expanded .action-selector {
+  min-width: 0;
+}
+
+.player-section.expanded .action-selector select {
+  min-width: 0;
+}
+
+.player-section.expanded .timeline-container {
+  padding: 4px 0 0;
+}
+
+.player-section.expanded .action-timeline {
+  display: none;
+}
+
+.video-focus-mode .skills-card {
+  display: none;
+}
+
+.video-focus-mode .annotation-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.video-focus-mode .side-panel {
+  max-width: 100%;
+}
+
+.video-focus-mode .panel-card {
+  box-shadow: 0 10px 24px rgba(20, 33, 61, 0.05);
 }
 
 .player-section.expanded .timeline-track {
-  height: 28px;
+  height: 18px;
 }
 
 .player-section.expanded .timeline-thumb {
-  height: 36px;
-  width: 18px;
-  top: -4px;
+  height: 28px;
+  width: 10px;
+  top: -5px;
 }
 
 .player-section.expanded .action-row-track {
-  height: 24px;
+  height: 18px;
 }
 
 .player-section.expanded .action-row,
@@ -215,9 +327,9 @@ button .icon {
 .overlay-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(3px);
-  z-index: 1000;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(1px);
+  z-index: 1200;
 }
 
 /* Player shell */
@@ -1480,7 +1592,7 @@ textarea:focus-visible {
   }
 
   .player-section.expanded {
-    inset: 3%;
+    width: 100%;
   }
 
   .action-row,
@@ -1592,6 +1704,10 @@ textarea:focus-visible {
   .dialog-card {
     inset: 6% auto auto 50%;
     width: min(1280px, 88vw);
+  }
+
+  .player-section.expanded {
+    width: 100%;
   }
 
   .action-row-track {
@@ -2996,6 +3112,56 @@ button:active:not(:disabled) {
   .profile-modal-card {
     width: min(520px, calc(100vw - 24px));
     padding: 18px;
+  }
+
+  .player-section.expanded {
+    width: 100%;
+    max-height: none;
+    padding: 10px;
+  }
+
+  .player-section.expanded .player-shell {
+    height: auto;
+  }
+
+  .player-section.expanded .marker-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .player-section.expanded .action-selector {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-height: 680px) {
+  .player-section.expanded {
+    max-height: none;
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .player-section.expanded .player-shell {
+    height: auto;
+  }
+
+  .player-section.expanded .expanded-viewer-header {
+    padding-bottom: 6px;
+  }
+
+  .player-section.expanded .expanded-viewer-header span {
+    display: none;
+  }
+
+  .player-section.expanded .controls {
+    padding-bottom: 6px;
+  }
+
+  .player-section.expanded .timeline-label {
+    display: none;
+  }
+
+  .player-section.expanded .timeline-row {
+    grid-template-columns: 1fr;
   }
 }
 
