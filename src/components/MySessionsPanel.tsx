@@ -12,11 +12,16 @@ interface Props {
 export function MySessionsPanel({ uid, onOpenSession }: Props) {
   const [sessions, setSessions] = useState<AnnotationSession[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       setSessions(await listMySessions(uid))
+    } catch (refreshError) {
+      console.warn('No se pudieron cargar las anotaciones guardadas.', refreshError)
+      setError('No se pudieron cargar las anotaciones. Revisa tu conexion o permisos.')
     } finally {
       setLoading(false)
     }
@@ -36,16 +41,19 @@ export function MySessionsPanel({ uid, onOpenSession }: Props) {
       <div className="panel-header">
         <h3>Mis anotaciones</h3>
         <button className="ghost" onClick={() => void refresh()} disabled={loading}>
-          Actualizar
+          {loading ? 'Actualizando...' : 'Actualizar'}
         </button>
       </div>
       <div className="session-list">
-        {sessions.length === 0 && <p className="placeholder-text">No hay anotaciones guardadas aun.</p>}
+        {error && <p className="form-error">{error}</p>}
+        {!error && !loading && sessions.length === 0 && (
+          <p className="placeholder-text">No hay anotaciones guardadas aun.</p>
+        )}
         {sessions.map((session) => (
           <button className="session-row" key={session.session_id} onClick={() => void openSession(session.session_id)}>
             <span>
-              <strong>Anotacion local</strong>
-              <small>{timestampToIso(session.updated_at) ?? 'sin fecha'}</small>
+              <strong>{session.video_filename || session.video_code || 'Archivo codificado'}</strong>
+              <small>Anotacion local · {timestampToIso(session.updated_at) ?? 'sin fecha'}</small>
             </span>
             <SessionStatusBadge status={session.status} />
           </button>

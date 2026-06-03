@@ -1,4 +1,4 @@
-import { collection, getDocs, orderBy, query, serverTimestamp, updateDoc, doc } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDocs, orderBy, query, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import type { UserProfile, UserRole, UserStatus } from '../types'
 
@@ -29,4 +29,11 @@ export async function updateUserProfileAdmin(uid: string, update: UserAdminUpdat
     approved_at: update.status === 'active' ? serverTimestamp() : null,
     updated_at: serverTimestamp(),
   })
+}
+
+export async function deleteUserProfileAdmin(uid: string, actorUid: string) {
+  if (uid === actorUid) {
+    throw new Error('No puedes eliminar tu propio perfil administrativo.')
+  }
+  await deleteDoc(doc(db, USERS, uid))
 }

@@ -15,14 +15,18 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return signedIn() && (request.auth.token.admin == true || myProfile().role == "admin");
+      return signedIn()
+        && (
+          request.auth.token.get("admin", false) == true
+          || myProfile().role == "admin"
+        );
     }
 
     function isSupervisor() {
       return signedIn()
         && (
-          request.auth.token.supervisor == true
-          || request.auth.token.admin == true
+          request.auth.token.get("supervisor", false) == true
+          || request.auth.token.get("admin", false) == true
           || myProfile().role in ["supervisor", "admin"]
         );
     }
@@ -246,21 +250,42 @@ service cloud.firestore {
             && parentSession().status in ["draft", "returned"];
         }
 
+        function validSegmentIdentity() {
+          return request.resource.data.segment_id == segmentId
+            && request.resource.data.session_id == sessionId
+            && isSafeVideoCode(request.resource.data.video_code)
+            && isSafeVideoCode(request.resource.data.video_filename)
+            && request.resource.data.video_code == parentSession().video_code
+            && request.resource.data.video_filename == parentSession().video_filename
+            && request.resource.data.annotator_uid == parentSession().annotator_uid
+            && request.resource.data.annotator_code == parentSession().annotator_code;
+        }
+
+        function reviewerUpdatesSubmittedSegment() {
+          return isReviewer()
+            && parentSession().status == "submitted"
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(["action", "start_sec", "end_sec", "repetition_id", "notes", "updated_at"]);
+        }
+
+        function reviewerUpdatesSegmentNotes() {
+          return isReviewer()
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(["notes", "updated_at"]);
+        }
+
         allow read: if isActiveApprovedUser()
           && (parentSession().annotator_uid == request.auth.uid || isReviewer() || isSupervisor());
 
-        allow create, update: if parentEditableByOwner()
+        allow create: if parentEditableByOwner()
           && validSegmentKeys()
-          && request.resource.data.segment_id == segmentId
-          && request.resource.data.session_id == sessionId
-          && isSafeVideoCode(request.resource.data.video_code)
-          && isSafeVideoCode(request.resource.data.video_filename)
-          && request.resource.data.video_code == parentSession().video_code
-          && request.resource.data.video_filename == parentSession().video_filename
-          && request.resource.data.annotator_uid == parentSession().annotator_uid
-          && request.resource.data.annotator_code == parentSession().annotator_code;
+          && validSegmentIdentity();
 
-        allow delete: if parentEditableByOwner();
+        allow update: if validSegmentKeys()
+          && validSegmentIdentity()
+          && (parentEditableByOwner() || reviewerUpdatesSubmittedSegment() || reviewerUpdatesSegmentNotes());
+
+        allow delete: if parentEditableByOwner() || isAdmin();
       }
 
       match /review_events/{eventId} {
@@ -284,7 +309,8 @@ service cloud.firestore {
           && request.resource.data.actor_uid == request.auth.uid
           && request.resource.data.actor_role in ["reviewer", "supervisor", "admin"]
           && request.resource.data.event_type in ["reviewed", "returned", "locked", "unlocked"];
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isAdmin();
       }
     }
 
@@ -316,28 +342,58 @@ service cloud.firestore {
         ]);
       }
 
-      function validUnifiedSegmentIdentity() {
+      function validUnifiedSegmentParentIdentity() {
         return request.resource.data.unified_segment_id == segmentDocId
           && isSafeVideoCode(request.resource.data.video_code)
           && isSafeVideoCode(request.resource.data.video_filename)
           && request.resource.data.video_code == parentSession().video_code
           && request.resource.data.video_filename == parentSession().video_filename
-          && request.resource.data.annotator_uid == request.auth.uid
           && request.resource.data.annotator_uid == parentSession().annotator_uid
-          && request.resource.data.annotator_code == parentSession().annotator_code
+          && request.resource.data.annotator_code == parentSession().annotator_code;
+      }
+
+      function validUnifiedSegmentOwnerIdentity() {
+        return validUnifiedSegmentParentIdentity()
+          && request.resource.data.annotator_uid == request.auth.uid
           && parentSession().status in ["draft", "returned"];
+      }
+
+      function reviewerUpdatesSubmittedUnifiedSegment() {
+        return isReviewer()
+          && validUnifiedSegmentParentIdentity()
+          && parentSession().status == "submitted"
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["action", "start_sec", "end_sec", "repetition_id", "notes", "updated_at"]);
+      }
+
+      function reviewerUpdatesUnifiedSegmentNotes() {
+        return isReviewer()
+          && validUnifiedSegmentParentIdentity()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["notes", "updated_at"]);
       }
 
       allow read: if isActiveApprovedUser()
         && (resource.data.annotator_uid == request.auth.uid || isReviewer() || isSupervisor());
 
-      allow create, update: if isActiveApprovedUser()
+      allow create: if isActiveApprovedUser()
         && validUnifiedSegmentKeys()
-        && validUnifiedSegmentIdentity();
+        && validUnifiedSegmentOwnerIdentity();
 
-      allow delete: if isActiveApprovedUser()
-        && existingParentSession().annotator_uid == request.auth.uid
-        && existingParentSession().status in ["draft", "returned"];
+      allow update: if isActiveApprovedUser()
+        && validUnifiedSegmentKeys()
+        && (
+          validUnifiedSegmentOwnerIdentity()
+          || reviewerUpdatesSubmittedUnifiedSegment()
+          || reviewerUpdatesUnifiedSegmentNotes()
+        );
+
+      allow delete: if isAdmin()
+        || (
+          isActiveApprovedUser()
+          && existingParentSession().annotator_uid == request.auth.uid
+          && existingParentSession().status in ["draft", "returned"]
+        );
     }
   }
 }

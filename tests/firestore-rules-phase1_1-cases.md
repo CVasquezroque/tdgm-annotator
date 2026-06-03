@@ -59,7 +59,7 @@ Use `@firebase/rules-unit-testing` with `firestore.rules` and assert these cases
 - PASS: auth token with `supervisor: true` reads pending users.
 - PASS: auth token with `supervisor: true` updates user approval fields.
 - PASS: auth token with `admin: true` deletes users.
-- FAIL: Firestore profile field `role: "admin"` without matching custom claim performs supervisor/admin-only writes.
+- PASS: Firestore profile field `role: "admin"` performs admin-only writes even when the optional custom claim is absent.
 
 ## Storage
 

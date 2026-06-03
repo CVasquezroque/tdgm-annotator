@@ -9,6 +9,7 @@ interface Props {
   onRequestPreview: (time: number) => void
   previewUrl?: string | null
   previewTime?: number | null
+  previewEnabled?: boolean
   children?: ReactNode
 }
 
@@ -19,6 +20,7 @@ export function Timeline({
   onRequestPreview,
   previewUrl,
   previewTime,
+  previewEnabled = true,
   children,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -41,10 +43,10 @@ export function Timeline({
     (clientX: number) => {
       const t = computeTimeFromClientX(clientX)
       setHoverTime(t)
-      onRequestPreview(t)
+      if (previewEnabled) onRequestPreview(t)
       return t
     },
-    [computeTimeFromClientX, onRequestPreview],
+    [computeTimeFromClientX, onRequestPreview, previewEnabled],
   )
 
   useEffect(() => {
@@ -94,7 +96,7 @@ export function Timeline({
             <div className="timeline-progress" style={{ width: `${ratio}%` }} />
             <div className="timeline-thumb" style={{ left: thumbLeft }} />
           </div>
-          {hoverTime !== null && (
+          {hoverTime !== null && previewEnabled && (
             <div className="timeline-preview" style={{ left: previewLeft }}>
               {previewUrl ? <img src={previewUrl} alt="preview" /> : <div className="preview-empty" />}
               <div className="preview-time">{formatTime(previewTime ?? hoverTime)}</div>

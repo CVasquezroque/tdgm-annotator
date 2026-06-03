@@ -1,17 +1,32 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AnnotationSession, Segment, UserProfile } from '../types'
+import type { AnnotationSession, UserProfile } from '../types'
 import {
+  deleteAnnotationSession,
   getReviewEvents,
   listReviewableSessions,
   loadSessionBundle,
   setSessionReviewStatus,
   timestampToIso,
+  type SessionBundle,
 } from '../services/annotationSessions'
+import { DangerZoneConfirmDialog } from './DangerZoneConfirmDialog'
+import { ReviewSessionViewer, type ReviewViewerMode } from './ReviewSessionViewer'
 import { SessionStatusBadge } from './SessionStatusBadge'
 
 interface Props {
   profile: UserProfile
-  onOpenSession: (session: AnnotationSession, segments: Segment[]) => void
+}
+
+const PAGE_SIZES = [5, 10, 20, 50]
+
+function isPermissionDenied(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      ((error as { code: unknown }).code === 'permission-denied' ||
+        (error as { code: unknown }).code === 'PERMISSION_DENIED'),
+  )
 }
 
 function formatDate(value: unknown) {
@@ -35,12 +50,21 @@ function reviewTitle(session: AnnotationSession) {
   return 'Borrador'
 }
 
-export function ReviewerSessionsPanel({ profile, onOpenSession }: Props) {
+export function ReviewerSessionsPanel({ profile }: Props) {
   const [sessions, setSessions] = useState<AnnotationSession[]>([])
   const [filter, setFilter] = useState('')
   const [comment, setComment] = useState('')
   const [selectedEvents, setSelectedEvents] = useState<{ sessionId: string; events: string[] } | null>(null)
+  const [viewerState, setViewerState] = useState<{ mode: ReviewViewerMode; bundle: SessionBundle } | null>(null)
+  const [viewerError, setViewerError] = useState<string | null>(null)
+  const [viewLoadingId, setViewLoadingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [pageSize, setPageSize] = useState(5)
+  const [page, setPage] = useState(1)
+  const [deleteTarget, setDeleteTarget] = useState<AnnotationSession | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const canDeleteSessions = profile.role === 'admin'
 
   const refresh = async () => {
     setLoading(true)
@@ -59,15 +83,34 @@ export function ReviewerSessionsPanel({ profile, onOpenSession }: Props) {
     const normalized = filter.trim().toLowerCase()
     if (!normalized) return sessions
     return sessions.filter((session) =>
-      [session.annotator_code, session.status].some((value) =>
+      [session.annotator_code, session.video_filename, session.video_code, session.status].some((value) =>
         String(value).toLowerCase().includes(normalized),
       ),
     )
   }, [filter, sessions])
 
-  const openSession = async (sessionId: string) => {
-    const bundle = await loadSessionBundle(sessionId)
-    if (bundle) onOpenSession(bundle.session, bundle.segments)
+  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize))
+  const safePage = Math.min(page, pageCount)
+  const pageStart = (safePage - 1) * pageSize
+  const pagedVisible = visible.slice(pageStart, pageStart + pageSize)
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount)
+  }, [page, pageCount])
+
+  const openViewer = async (sessionId: string, mode: ReviewViewerMode) => {
+    setViewLoadingId(sessionId)
+    setViewerError(null)
+    try {
+      const bundle = await loadSessionBundle(sessionId)
+      if (bundle) setViewerState({ mode, bundle })
+      else setViewerError('No se encontro la anotacion seleccionada.')
+    } catch (error) {
+      console.warn('No se pudo abrir la anotacion para revision.', error)
+      setViewerError('No se pudo abrir la anotacion para revision.')
+    } finally {
+      setViewLoadingId(null)
+    }
   }
 
   const act = async (session: AnnotationSession, status: 'reviewed' | 'returned' | 'locked') => {
@@ -82,6 +125,30 @@ export function ReviewerSessionsPanel({ profile, onOpenSession }: Props) {
       sessionId,
       events: events.map((event) => `${event.event_type}: ${event.comment ?? 'sin comentario'}`),
     })
+  }
+
+  const deleteSession = async () => {
+    if (!deleteTarget || !canDeleteSessions) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteAnnotationSession(deleteTarget.session_id)
+      setViewerState((current) =>
+        current?.bundle.session.session_id === deleteTarget.session_id ? null : current,
+      )
+      setSelectedEvents((current) => (current?.sessionId === deleteTarget.session_id ? null : current))
+      setDeleteTarget(null)
+      await refresh()
+    } catch (error) {
+      console.warn('No se pudo eliminar la anotacion.', error)
+      setDeleteError(
+        isPermissionDenied(error)
+          ? 'Firestore rechazo la eliminacion. Verifica que las reglas actualizadas esten publicadas para el proyecto.'
+          : 'No se pudo eliminar la anotacion. Revisa tu conexion.',
+      )
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
@@ -99,18 +166,26 @@ export function ReviewerSessionsPanel({ profile, onOpenSession }: Props) {
       <div className="review-controls">
         <label>
           Buscar
-          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Anotador o estado" />
+          <input
+            value={filter}
+            onChange={(e) => {
+              setFilter(e.target.value)
+              setPage(1)
+            }}
+            placeholder="Anotador, video o estado"
+          />
         </label>
         <label>
           Comentario para la accion
           <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder="Opcional" />
         </label>
       </div>
+      {viewerError && <div className="form-error">{viewerError}</div>}
       <div className="session-list">
         {visible.length === 0 && <p className="placeholder-text">No hay anotaciones para revisar con ese filtro.</p>}
-        {visible.map((session) => (
+        {pagedVisible.map((session) => (
           <div className="session-review-row review-card" key={session.session_id}>
-            <button className="session-row review-card-main" onClick={() => void openSession(session.session_id)}>
+            <div className="session-row review-card-main review-card-summary">
               <span className="review-card-copy">
                 <strong>{reviewTitle(session)}</strong>
                 <small>{session.video_filename || 'Archivo codificado'}</small>
@@ -121,10 +196,24 @@ export function ReviewerSessionsPanel({ profile, onOpenSession }: Props) {
                 </span>
               </span>
               <SessionStatusBadge status={session.status} />
-            </button>
+            </div>
             <div className="review-actions">
-              <button className="secondary" onClick={() => void act(session, 'reviewed')} disabled={session.status === 'locked'}>
+              <button
+                className="secondary"
+                onClick={() => void openViewer(session.session_id, 'view')}
+                disabled={viewLoadingId === session.session_id}
+              >
+                {viewLoadingId === session.session_id ? 'Abriendo...' : 'Ver'}
+              </button>
+              <button
+                className="secondary"
+                onClick={() => void openViewer(session.session_id, 'review')}
+                disabled={session.status !== 'submitted' || viewLoadingId === session.session_id}
+              >
                 Revisar
+              </button>
+              <button className="secondary" onClick={() => void act(session, 'reviewed')} disabled={session.status !== 'submitted'}>
+                Aprobar
               </button>
               <button className="secondary" onClick={() => void act(session, 'returned')} disabled={session.status === 'locked'}>
                 Devolver
@@ -135,6 +224,17 @@ export function ReviewerSessionsPanel({ profile, onOpenSession }: Props) {
               <button className="ghost" onClick={() => void showEvents(session.session_id)}>
                 Eventos
               </button>
+              {canDeleteSessions && (
+                <button
+                  className="danger-outline"
+                  onClick={() => {
+                    setDeleteError(null)
+                    setDeleteTarget(session)
+                  }}
+                >
+                  Eliminar
+                </button>
+              )}
             </div>
             {selectedEvents?.sessionId === session.session_id && (
               <div className="review-events">
@@ -147,6 +247,90 @@ export function ReviewerSessionsPanel({ profile, onOpenSession }: Props) {
           </div>
         ))}
       </div>
+      {visible.length > 0 && (
+        <div className="review-pagination">
+          <label className="review-page-size">
+            Mostrar
+            <select
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value))
+                setPage(1)
+              }}
+            >
+              {PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="review-page-summary">
+            Mostrando {pageStart + 1}-{Math.min(pageStart + pageSize, visible.length)} de {visible.length}
+          </span>
+          <div className="review-page-buttons" aria-label="Paginas de revision">
+            <button className="ghost" type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage === 1}>
+              Anterior
+            </button>
+            {Array.from({ length: pageCount }, (_, index) => index + 1).map((pageNumber) => (
+              <button
+                className={safePage === pageNumber ? 'active' : 'ghost'}
+                type="button"
+                key={pageNumber}
+                onClick={() => setPage(pageNumber)}
+                aria-current={safePage === pageNumber ? 'page' : undefined}
+              >
+                {pageNumber}
+              </button>
+            ))}
+            <button
+              className="ghost"
+              type="button"
+              onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+              disabled={safePage === pageCount}
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
+      )}
+      {viewerState && (
+        <ReviewSessionViewer
+          key={`${viewerState.mode}:${viewerState.bundle.session.session_id}`}
+          mode={viewerState.mode}
+          session={viewerState.bundle.session}
+          segments={viewerState.bundle.segments}
+          onSaved={(nextSegments) => {
+            setViewerState((current) =>
+              current
+                ? {
+                    ...current,
+                    bundle: { ...current.bundle, segments: nextSegments },
+                  }
+                : current,
+            )
+            void refresh()
+          }}
+          onClose={() => setViewerState(null)}
+        />
+      )}
+      {deleteTarget && (
+        <DangerZoneConfirmDialog
+          key={deleteTarget.session_id}
+          title="Eliminar anotacion"
+          targetLabel={`${deleteTarget.video_filename || deleteTarget.video_code} · ${
+            deleteTarget.annotator_code || 'codigo pendiente'
+          }`}
+          warning="Se eliminaran la sesion, todos sus segmentos, los registros usados por exportacion y sus eventos de revision. Esta accion no se puede deshacer."
+          busy={deleting}
+          error={deleteError}
+          onCancel={() => {
+            setDeleteTarget(null)
+            setDeleteError(null)
+          }}
+          onConfirm={() => void deleteSession()}
+        />
+      )}
     </div>
   )
 }

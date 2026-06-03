@@ -1,14 +1,29 @@
 import { useEffect, useState } from 'react'
 import type { UserProfile, UserRole, UserStatus } from '../types'
-import { listUserProfiles, updateUserProfileAdmin } from '../services/userAdmin'
+import { deleteUserProfileAdmin, listUserProfiles, updateUserProfileAdmin } from '../services/userAdmin'
+import { DangerZoneConfirmDialog } from './DangerZoneConfirmDialog'
 
 interface Props {
   actorUid: string
+  canDeleteUsers: boolean
 }
 
-export function AdminUsersPanel({ actorUid }: Props) {
+function isPermissionDenied(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      ((error as { code: unknown }).code === 'permission-denied' ||
+        (error as { code: unknown }).code === 'PERMISSION_DENIED'),
+  )
+}
+
+export function AdminUsersPanel({ actorUid, canDeleteUsers }: Props) {
   const [users, setUsers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<UserProfile | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const refresh = async () => {
     setLoading(true)
@@ -36,6 +51,26 @@ export function AdminUsersPanel({ actorUid }: Props) {
       approved_by_uid: actorUid,
     })
     await refresh()
+  }
+
+  const deleteUser = async () => {
+    if (!deleteTarget || !canDeleteUsers) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteUserProfileAdmin(deleteTarget.uid, actorUid)
+      setDeleteTarget(null)
+      await refresh()
+    } catch (error) {
+      console.warn('No se pudo eliminar el perfil de usuario.', error)
+      setDeleteError(
+        isPermissionDenied(error)
+          ? 'Firestore rechazo la eliminacion. Verifica que las reglas actualizadas esten publicadas para el proyecto.'
+          : 'No se pudo eliminar el perfil. Revisa tu conexion.',
+      )
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
@@ -89,9 +124,38 @@ export function AdminUsersPanel({ actorUid }: Props) {
               />
               Conf.
             </label>
+            {canDeleteUsers && (
+              <button
+                className="danger-outline"
+                type="button"
+                disabled={user.uid === actorUid}
+                title={user.uid === actorUid ? 'No puedes eliminar tu propio perfil.' : 'Eliminar perfil de usuario'}
+                onClick={() => {
+                  setDeleteError(null)
+                  setDeleteTarget(user)
+                }}
+              >
+                Eliminar
+              </button>
+            )}
           </div>
         ))}
       </div>
+      {deleteTarget && (
+        <DangerZoneConfirmDialog
+          key={deleteTarget.uid}
+          title="Eliminar usuario"
+          targetLabel={deleteTarget.full_name || deleteTarget.email || deleteTarget.uid}
+          warning="Se eliminara el perfil de DIANA en Firestore. Sus anotaciones existentes permaneceran y su cuenta de Firebase Auth no sera eliminada, porque eso requiere un servicio backend con Admin SDK. Esta accion no se puede deshacer desde la app."
+          busy={deleting}
+          error={deleteError}
+          onCancel={() => {
+            setDeleteTarget(null)
+            setDeleteError(null)
+          }}
+          onConfirm={() => void deleteUser()}
+        />
+      )}
     </div>
   )
 }

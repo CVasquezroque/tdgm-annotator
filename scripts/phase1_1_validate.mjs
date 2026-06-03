@@ -89,6 +89,8 @@ const requiredRuleSnippets = [
 for (const snippet of requiredRuleSnippets) {
   assert(firestoreRules.includes(snippet), `firestore.rules missing hardening snippet: ${snippet}`)
 }
+assert(firestoreRules.includes('request.auth.token.get("admin", false)'), 'admin claim lookup should allow missing claims')
+assertNotIncludes(firestoreRules, ['request.auth.token.admin == true'], 'firestore.rules')
 
 if (failures.length > 0) {
   console.error('Phase 1.1 validation failed:')

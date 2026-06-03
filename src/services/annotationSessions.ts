@@ -13,6 +13,7 @@ import {
   where,
   writeBatch,
   type DocumentData,
+  type DocumentReference,
   type QueryDocumentSnapshot,
   type Timestamp,
 } from 'firebase/firestore'
@@ -71,6 +72,15 @@ function unifiedSegmentRef(sessionId: string, segmentId: string) {
 
 function reviewEventsRef(sessionId: string) {
   return collection(db, SESSIONS, sessionId, 'review_events')
+}
+
+async function deleteDocumentRefs(refs: DocumentReference<DocumentData>[]) {
+  const chunkSize = 400
+  for (let index = 0; index < refs.length; index += chunkSize) {
+    const batch = writeBatch(db)
+    refs.slice(index, index + chunkSize).forEach((ref) => batch.delete(ref))
+    await batch.commit()
+  }
 }
 
 export function timestampToIso(value: unknown): string | null {
@@ -257,6 +267,54 @@ export async function saveSessionSegments(session: AnnotationSession, segments: 
   await batch.commit()
 }
 
+export async function saveReviewedSessionSegments(session: AnnotationSession, segments: Segment[]) {
+  if (session.status !== 'submitted') {
+    throw new Error('Solo se pueden editar segmentos de una sesion enviada.')
+  }
+
+  const current = await getDocs(segmentsRef(session.session_id))
+  const currentIds = new Set(current.docs.map((snap) => snap.id))
+  const nextIds = new Set(segments.map((segment) => segment.id))
+  if (
+    currentIds.size !== nextIds.size ||
+    [...currentIds].some((segmentId) => !nextIds.has(segmentId))
+  ) {
+    throw new Error('La revision solo permite editar segmentos existentes.')
+  }
+
+  const batch = writeBatch(db)
+  segments.forEach((segment) => {
+    const payload = {
+      action: segment.action,
+      start_sec: segment.startSec,
+      end_sec: segment.endSec,
+      repetition_id: segment.repetitionId ?? '',
+      notes: segment.notes?.trim() || null,
+      updated_at: serverTimestamp(),
+    }
+    batch.update(doc(db, SESSIONS, session.session_id, 'segments', segment.id), payload)
+    batch.update(unifiedSegmentRef(session.session_id, segment.id), payload)
+  })
+
+  await batch.commit()
+}
+
+export async function saveReviewSessionNotes(session: AnnotationSession, segments: Segment[]) {
+  const chunkSize = 200
+  for (let index = 0; index < segments.length; index += chunkSize) {
+    const batch = writeBatch(db)
+    segments.slice(index, index + chunkSize).forEach((segment) => {
+      const payload = {
+        notes: segment.notes?.trim() || null,
+        updated_at: serverTimestamp(),
+      }
+      batch.update(doc(db, SESSIONS, session.session_id, 'segments', segment.id), payload)
+      batch.update(unifiedSegmentRef(session.session_id, segment.id), payload)
+    })
+    await batch.commit()
+  }
+}
+
 export async function submitSession(session: AnnotationSession, segmentCount: number) {
   await updateDoc(sessionRef(session.session_id), {
     status: 'submitted',
@@ -315,13 +373,32 @@ export async function getReviewEvents(sessionId: string) {
 }
 
 export async function listMySessions(uid: string) {
-  const snaps = await getDocs(query(collection(db, SESSIONS), where('annotator_uid', '==', uid), orderBy('updated_at', 'desc')))
-  return snaps.docs.map((snap) => mapSessionSnap(snap))
+  const snaps = await getDocs(query(collection(db, SESSIONS), where('annotator_uid', '==', uid)))
+  return snaps.docs
+    .map((snap) => mapSessionSnap(snap))
+    .sort((a, b) => {
+      const aTime = timestampToIso(a.updated_at) ?? ''
+      const bTime = timestampToIso(b.updated_at) ?? ''
+      return bTime.localeCompare(aTime)
+    })
 }
 
 export async function listReviewableSessions() {
   const snaps = await getDocs(query(collection(db, SESSIONS), orderBy('updated_at', 'desc'), limit(200)))
   return snaps.docs.map((snap) => mapSessionSnap(snap))
+}
+
+export async function listSessionsForDashboard(input: { uid: string; canReadAll: boolean }) {
+  if (!input.canReadAll) return listMySessions(input.uid)
+
+  const snaps = await getDocs(collection(db, SESSIONS))
+  return snaps.docs
+    .map((snap) => mapSessionSnap(snap))
+    .sort((a, b) => {
+      const aTime = timestampToIso(a.updated_at) ?? ''
+      const bTime = timestampToIso(b.updated_at) ?? ''
+      return bTime.localeCompare(aTime)
+    })
 }
 
 export async function listUnifiedSegmentsForExport(input: { uid: string; canReadAll: boolean }) {
@@ -348,6 +425,21 @@ export async function loadSessionBundle(sessionId: string): Promise<SessionBundl
     session,
     segments: segmentSnaps.docs.map((segmentSnap) => firestoreToSegment(segmentSnap.data())),
   }
+}
+
+export async function deleteAnnotationSession(sessionId: string) {
+  const [segmentSnaps, reviewEventSnaps, unifiedSegmentSnaps] = await Promise.all([
+    getDocs(segmentsRef(sessionId)),
+    getDocs(reviewEventsRef(sessionId)),
+    getDocs(query(collection(db, UNIFIED_SEGMENTS), where('session_id', '==', sessionId))),
+  ])
+
+  await deleteDocumentRefs([
+    ...segmentSnaps.docs.map((snap) => snap.ref),
+    ...reviewEventSnaps.docs.map((snap) => snap.ref),
+    ...unifiedSegmentSnaps.docs.map((snap) => snap.ref),
+  ])
+  await deleteDoc(sessionRef(sessionId))
 }
 
 export async function deleteSessionSegment(sessionId: string, segmentId: string) {

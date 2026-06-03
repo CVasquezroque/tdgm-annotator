@@ -17,31 +17,22 @@ import { MySessionsPanel } from './components/MySessionsPanel'
 import { ReviewerSessionsPanel } from './components/ReviewerSessionsPanel'
 import { AdminUsersPanel } from './components/AdminUsersPanel'
 import { ExportPanel } from './components/ExportPanel'
+import { DashboardPanel } from './components/DashboardPanel'
 import type { ActionId, AnnotationSession, Segment, VideoMeta } from './types'
 import { TGMD_ACTIONS } from './constants/actions'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useThumbnailGenerator } from './hooks/useThumbnailGenerator'
 import { useAnnotationSession } from './hooks/useAnnotationSession'
+import { useLocalBooleanPreference } from './hooks/useLocalBooleanPreference'
 import { formatTime } from './utils/time'
+import { codedFilenameFromFile } from './utils/video'
 import { useAuth } from './hooks/useAuth'
 import { updateOwnSafeProfile } from './services/userProfiles'
 
-function codedFilenameFromFile(file: File) {
-  const baseName = file.name.split(/[\\/]/).pop()?.trim() || `LOCAL-${Date.now().toString(36).toUpperCase()}`
-  const cleaned = baseName
-    .split('')
-    .filter((char) => char >= ' ' && char !== '\u007f')
-    .join('')
-    .replace(/[\\/]/g, '_')
-    .replace(/[^A-Za-z0-9._ -]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120)
+type WorkspaceView = 'annotate' | 'sessions' | 'dashboard' | 'exports' | 'review' | 'users'
 
-  return cleaned || `LOCAL-${Date.now().toString(36).toUpperCase()}`
-}
-
-type WorkspaceView = 'annotate' | 'sessions' | 'exports' | 'review' | 'users'
+const EXPANDED_VIEW_PREFERENCE = 'tgdm-pref:expanded-view'
+const POSE_SUMMARY_PREFERENCE = 'tgdm-pref:pose-summary'
 
 function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -58,6 +49,9 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [isExpanded, setIsExpanded] = useState(false)
+  const [expandedViewEnabled, setExpandedViewEnabled] = useLocalBooleanPreference(EXPANDED_VIEW_PREFERENCE, false)
+  const [poseSummaryEnabled, setPoseSummaryEnabled] = useLocalBooleanPreference(POSE_SUMMARY_PREFERENCE, false)
+  const [isPoseProcessing, setIsPoseProcessing] = useState(false)
   const [isVideoLoading, setIsVideoLoading] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
   const [selectedAction, setSelectedAction] = useState<ActionId | ''>('')
@@ -91,7 +85,7 @@ function App() {
     error: authError,
   } = useAuth()
 
-  const { previewUrl, previewTime, requestPreview } = useThumbnailGenerator(videoSrc)
+  const { previewUrl, previewTime, requestPreview } = useThumbnailGenerator(videoSrc, !isPoseProcessing)
 
   const annotatorCode = profile?.annotator_code.trim() || ''
   const annotatorCodeLabel = annotatorCode || 'codigo pendiente'
@@ -133,6 +127,7 @@ function App() {
     const views: Array<{ id: WorkspaceView; label: string }> = [
       { id: 'annotate', label: 'Anotar' },
       { id: 'sessions', label: 'Mis anotaciones' },
+      { id: 'dashboard', label: 'Dashboard' },
       { id: 'exports', label: 'Exportar' },
     ]
     if (canReview) views.push({ id: 'review', label: 'Revision' })
@@ -203,9 +198,9 @@ function App() {
     }
   }
 
-  const nextRepetitionFor = (actionId: ActionId | '') => {
+  const nextRepetitionFor = (actionId: ActionId | '', excludeSegmentId?: string) => {
     if (!actionId) return ''
-    const count = segments.filter((s) => s.action === actionId).length
+    const count = segments.filter((segment) => segment.action === actionId && segment.id !== excludeSegmentId).length
     return String(count + 1)
   }
 
@@ -215,7 +210,23 @@ function App() {
     setDraft(null)
   }
 
+  const cancelAnnotationForm = () => {
+    setPendingSeek(currentTime)
+    setShowFormModal(false)
+    setIsPoseProcessing(false)
+    resetAnnotationState()
+  }
+
+  const releaseCurrentVideoElement = () => {
+    const video = videoRef.current
+    if (!video) return
+    video.pause()
+    video.removeAttribute('src')
+    video.load()
+  }
+
   const revokeCurrentVideoUrl = () => {
+    releaseCurrentVideoElement()
     if (videoObjectUrlRef.current) {
       URL.revokeObjectURL(videoObjectUrlRef.current)
       videoObjectUrlRef.current = null
@@ -242,10 +253,9 @@ function App() {
     setCurrentTime(0)
     setShowFormModal(false)
     setLastSaved(null)
-    if (videoRef.current) {
-      videoRef.current.pause()
-      videoRef.current.currentTime = 0
-    }
+    setIsExpanded(false)
+    setPosePreview(null)
+    setIsPoseProcessing(false)
   }
 
   const togglePlay = () => {
@@ -254,7 +264,7 @@ function App() {
     if (video.paused) {
       void video.play()
       setIsPlaying(true)
-      setIsExpanded(true)
+      if (expandedViewEnabled) setIsExpanded(true)
     } else {
       video.pause()
       setIsPlaying(false)
@@ -397,6 +407,7 @@ function App() {
     onJumpBackwardPrecise: () => jump(-0.04),
     onJumpForwardPrecise: () => jump(0.04),
     onSaveSegment: () => {
+      if (showFormModal) return
       if (draft && draft.endSec > draft.startSec && canUseAnnotationControls) {
         handleSubmitSegment({
           id: draft.id ?? crypto.randomUUID?.() ?? String(Date.now()),
@@ -415,6 +426,7 @@ function App() {
 
   useEffect(
     () => () => {
+      releaseCurrentVideoElement()
       if (videoObjectUrlRef.current) {
         URL.revokeObjectURL(videoObjectUrlRef.current)
         videoObjectUrlRef.current = null
@@ -422,6 +434,10 @@ function App() {
     },
     [],
   )
+
+  useEffect(() => {
+    if (!expandedViewEnabled && isExpanded) setIsExpanded(false)
+  }, [expandedViewEnabled, isExpanded])
 
   useEffect(() => {
     if (!isExpanded) return
@@ -623,6 +639,24 @@ function App() {
             <div className="privacy-inline">
               El video permanece en este dispositivo. No se sube a ningun servidor.
             </div>
+            <div className="annotation-preferences" aria-label="Preferencias de visualizacion">
+              <label className="preference-check">
+                <input
+                  type="checkbox"
+                  checked={expandedViewEnabled}
+                  onChange={(event) => setExpandedViewEnabled(event.target.checked)}
+                />
+                Activar vista ampliada
+              </label>
+              <label className="preference-check">
+                <input
+                  type="checkbox"
+                  checked={poseSummaryEnabled}
+                  onChange={(event) => setPoseSummaryEnabled(event.target.checked)}
+                />
+                Pose en resumen
+              </label>
+            </div>
           </section>
 
           <ShortcutsHelp />
@@ -665,7 +699,7 @@ function App() {
               isMuted={isMuted}
               isLoading={isVideoLoading}
               seekTo={pendingSeek ?? undefined}
-              onRequestExpand={() => setIsExpanded(true)}
+              onRequestExpand={expandedViewEnabled ? () => setIsExpanded(true) : undefined}
               onDuration={(d) => {
                 setDuration(d)
                 setVideoMeta((m) => (m ? { ...m, duration: d } : m))
@@ -770,6 +804,7 @@ function App() {
             onRequestPreview={requestPreview}
             previewUrl={previewUrl}
             previewTime={previewTime ?? undefined}
+            previewEnabled={!isPoseProcessing && !isPlaying}
           >
             <ActionTimeline segments={segments} duration={duration} onSelect={(s) => handleSeek(s.startSec)} />
           </Timeline>
@@ -799,18 +834,21 @@ function App() {
       {activeView !== 'annotate' && (
         <main className={`management-view view-shell management-${activeView}`}>
           {activeView === 'sessions' && <MySessionsPanel uid={user.uid} onOpenSession={handleOpenStoredSession} />}
+          {activeView === 'dashboard' && <DashboardPanel uid={user.uid} canReadAll={canReview} />}
           {activeView === 'exports' && (
             <ExportPanel uid={user.uid} videoMeta={videoMeta} session={session} segments={segments} canExportAll={canReview} />
           )}
           {activeView === 'review' && canReview && profile && (
-            <ReviewerSessionsPanel profile={profile} onOpenSession={handleOpenStoredSession} />
+            <ReviewerSessionsPanel profile={profile} />
           )}
-          {activeView === 'users' && canManageUsers && <AdminUsersPanel actorUid={user.uid} />}
+          {activeView === 'users' && canManageUsers && (
+            <AdminUsersPanel actorUid={user.uid} canDeleteUsers={profile?.role === 'admin'} />
+          )}
         </main>
       )}
       {showFormModal && (
         <>
-          <div className="dialog-backdrop" onClick={() => setShowFormModal(false)} />
+          <div className="dialog-backdrop" onClick={cancelAnnotationForm} />
           <div className="dialog-card" role="dialog" aria-modal="true">
             <div className="step-header">
               {['1. Reproducir y ubicar', '2. Marcar inicio/fin', '3. Etiquetar segmento', '4. Guardar'].map(
@@ -839,7 +877,7 @@ function App() {
                   isMuted={isMuted}
                   isLoading={isVideoLoading}
                   seekTo={pendingSeek ?? undefined}
-                  onRequestExpand={() => setIsExpanded(true)}
+                  onRequestExpand={expandedViewEnabled ? () => setIsExpanded(true) : undefined}
                   onDuration={(d) => {
                     setDuration(d)
                     setVideoMeta((m) => (m ? { ...m, duration: d } : m))
@@ -882,24 +920,6 @@ function App() {
                     {pendingStart !== null && <span className="chip">Inicio: {formatTime(pendingStart)}</span>}
                     {pendingEnd !== null && <span className="chip">Fin: {formatTime(pendingEnd)}</span>}
                   </div>
-                  <div className="action-selector">
-                    <img className="icon icon-tag" src="/icon-tag.png" alt="" />
-                    <label>
-                      Accion a anotar
-                      <select
-                        value={selectedAction || ''}
-                        disabled={!canUseAnnotationControls}
-                        onChange={(e) => selectAction(e.target.value as ActionId | '')}
-                      >
-                        <option value="">Escoge una accion</option>
-                        {TGMD_ACTIONS.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
                 </div>
                 <Timeline
                   duration={duration}
@@ -908,6 +928,7 @@ function App() {
                   onRequestPreview={requestPreview}
                   previewUrl={previewUrl}
                   previewTime={previewTime ?? undefined}
+                  previewEnabled={!isPoseProcessing && !isPlaying}
                 >
                   <ActionTimeline segments={segments} duration={duration} onSelect={(s) => handleSeek(s.startSec)} />
                 </Timeline>
@@ -922,21 +943,24 @@ function App() {
                     key={draft.id ?? `${draft.startSec}-${draft.endSec}`}
                     draft={{ ...draft, annotatorId: annotatorCode }}
                     annotatorLocked={annotatorCode}
-                    lockAction={selectedAction as ActionId}
                     videoSrc={videoSrc}
+                    showAutomaticPose={poseSummaryEnabled}
+                    onPoseProcessingChange={setIsPoseProcessing}
+                    onActionChange={(action) => {
+                      setSelectedAction(action)
+                      return nextRepetitionFor(action, draft.id)
+                    }}
                     onRetakeMarks={() => {
                       if (draft) {
                         setPendingStart(draft.startSec)
                         setPendingEnd(draft.endSec)
-                        setSelectedAction(draft.action)
+                        setPendingSeek(currentTime)
                         setShowFormModal(false)
-                        setIsExpanded(true)
+                        setIsPoseProcessing(false)
+                        if (expandedViewEnabled) setIsExpanded(true)
                       }
                     }}
-                    onCancel={() => {
-                      setShowFormModal(false)
-                      resetAnnotationState()
-                    }}
+                    onCancel={cancelAnnotationForm}
                     onSubmit={(segment) => {
                       handleSubmitSegment(segment)
                     }}
