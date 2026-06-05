@@ -7,6 +7,7 @@ import {
   exportTextFile,
 } from '../services/exports'
 import {
+  listSessionsForDashboard,
   listReviewableSessions,
   listUnifiedSegmentsForExport,
   loadSessionBundle,
@@ -21,6 +22,13 @@ interface Props {
   segments: Segment[]
   canExportAll: boolean
 }
+
+const SENT_EXPORT_STATUSES = new Set<AnnotationSession['status']>([
+  'submitted',
+  'reviewed',
+  'returned',
+  'locked',
+])
 
 function metaFor(session: AnnotationSession) {
   return {
@@ -41,7 +49,7 @@ function metaFor(session: AnnotationSession) {
 }
 
 export function ExportPanel({ uid, videoMeta, session, segments, canExportAll }: Props) {
-  const canExportCurrent = Boolean(videoMeta && session && segments.length > 0)
+  const canExportCurrent = Boolean(videoMeta && session && SENT_EXPORT_STATUSES.has(session.status) && segments.length > 0)
 
   const exportCurrent = (format: 'csv' | 'json') => {
     if (!videoMeta || !session) return
@@ -53,7 +61,10 @@ export function ExportPanel({ uid, videoMeta, session, segments, canExportAll }:
   const exportConsolidated = async (status?: AnnotationSession['status']) => {
     const sessions = await listReviewableSessions()
     const rows: string[] = []
-    for (const item of sessions.filter((candidate) => !status || candidate.status === status)) {
+    const exportableSessions = sessions.filter((candidate) =>
+      status ? candidate.status === status : SENT_EXPORT_STATUSES.has(candidate.status),
+    )
+    for (const item of exportableSessions) {
       const bundle = await loadSessionBundle(item.session_id)
       if (!bundle) continue
       const csv = buildAnnotationsCsv({
@@ -66,14 +77,21 @@ export function ExportPanel({ uid, videoMeta, session, segments, canExportAll }:
     }
     const header =
       'project,schema_version,session_id,video_code,video_filename,action,start_sec,end_sec,repetition_id,annotator_code,status,created_at,updated_at,submitted_at,reviewed_at,locked_at,notes,app_version'
-    exportTextFile([header, ...rows].join('\n'), `DIANA_${status ?? 'all'}_sessions.csv`)
+    exportTextFile([header, ...rows].join('\n'), `DIANA_${status ?? 'sent'}_sessions.csv`)
   }
 
   const exportFirestoreSegments = async () => {
-    const firestoreSegments = await listUnifiedSegmentsForExport({ uid, canReadAll: canExportAll })
-    const csv = buildUnifiedSegmentsCsv(firestoreSegments)
+    const [sessions, firestoreSegments] = await Promise.all([
+      listSessionsForDashboard({ uid, canReadAll: canExportAll }),
+      listUnifiedSegmentsForExport({ uid, canReadAll: canExportAll }),
+    ])
+    const statusBySession = new Map(sessions.map((item) => [item.session_id, item.status]))
+    const exportableSegments = firestoreSegments.filter((segment) =>
+      SENT_EXPORT_STATUSES.has(statusBySession.get(segment.session_id) ?? 'draft'),
+    )
+    const csv = buildUnifiedSegmentsCsv(exportableSegments)
     const scope = canExportAll ? 'all' : 'my'
-    exportTextFile(csv, `DIANA_segments_${scope}.csv`)
+    exportTextFile(csv, `DIANA_segments_${scope}_sent.csv`)
   }
 
   return (
@@ -91,13 +109,13 @@ export function ExportPanel({ uid, videoMeta, session, segments, canExportAll }:
         {canExportAll && (
           <>
             <button className="secondary" onClick={() => void exportFirestoreSegments()}>
-              Todos los segmentos
+              Segmentos enviados
             </button>
             <button className="secondary" onClick={() => void exportConsolidated()}>
-              Consolidado
+              Consolidado enviados
             </button>
             <button className="secondary" onClick={() => void exportConsolidated('reviewed')}>
-              Revisados
+              Revisados aprobados
             </button>
             <button className="secondary" onClick={() => void exportConsolidated('locked')}>
               Bloqueados
@@ -106,7 +124,7 @@ export function ExportPanel({ uid, videoMeta, session, segments, canExportAll }:
         )}
         {!canExportAll && (
           <button className="secondary" onClick={() => void exportFirestoreSegments()}>
-            Mis segmentos
+            Mis segmentos enviados
           </button>
         )}
       </div>
